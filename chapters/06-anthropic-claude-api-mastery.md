@@ -369,16 +369,24 @@ Building a thin abstraction over providers (Chapter 8) keeps you free to switch 
 
 You now have the essentials of the Anthropic Claude API. Its structure differs from OpenAI's in small but important ways.
 
-You've learned to:
--   Call Claude with `messages.create`, and read responses block by block.
--   Control thinking depth and cost with `effort`.
--   Use detailed `system` prompts for precise behavioral control.
--   Analyze long documents and PDFs, and cut repeated-context costs with prompt caching.
--   Use Claude's vision capabilities for visual diagnostics.
--   Implement tool use that handles parallel calls and errors.
--   Get schema-valid JSON with structured outputs.
-
 By adding Claude to your toolkit, you can choose the best model for each job and blend providers to build more capable and resilient applications.
+
+## Key Takeaways
+
+-   `client.messages.create` requires `max_tokens`, which also covers thinking, and returns a list of typed content blocks. Read text by selecting blocks where `block.type == "text"`, never `content[0]`, and check `stop_reason` for `"max_tokens"` and `"refusal"`.
+-   Control thinking depth, cost, and latency with `output_config={"effort": ...}`, not `temperature`, which the newest models do not accept. Use `low` for classification and extraction, `high` or above for hard reasoning, and try the more capable model at lower effort before switching to a cheaper model.
+-   The system prompt goes in the dedicated `system` parameter. Wrap documents in XML-style tags such as `<document>`, and explain why a rule exists instead of shouting it in capitals.
+-   Prompt caching (`cache_control={"type": "ephemeral"}`) bills a repeated prompt prefix at a fraction of the input price. Put stable content first and changing content last, and confirm hits with `usage.cache_read_input_tokens`; prefixes below the minimum size are not cached.
+-   In a tool loop, append Claude's full `response.content` to the history, return a `tool_result` for every `tool_use` block in a single user message, report failures with `is_error: True`, and bound the number of turns.
+-   PDFs and images are `document` and `image` content blocks placed before the text question, and `messages.parse` with a Pydantic model returns schema-valid structured output.
+
+## Exercises
+
+**1. Warm-up:** Measure prompt caching on the `DocumentAnalyzerBot`. Replace the short `device_manual` with a manual long enough to pass the minimum cacheable size (several thousand tokens), send two questions with `cache_control={"type": "ephemeral"}`, and print `input_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens` for each call. Then add the current timestamp to the start of the system prompt and repeat. Done means your output shows a cache write on the first call, a cache read on the second, and zero cache reads once the timestamp breaks the prefix.
+
+**2. Build:** Add a second tool to `iot_tool_bot`, such as `get_battery_history(device_id, days)`, and make `get_live_device_status` raise an exception for unknown IDs instead of returning an error dictionary. Change the loop so that any exception raised by a tool function becomes a `tool_result` with `is_error: True` and the error message, rather than crashing the program. Done means "What is the status and recent battery trend of TEMP-042 and HUM-007?" ends with an answer that explains HUM-007 could not be read, and a per-turn log shows the number of `tool_use` blocks always equals the number of `tool_result` blocks.
+
+**3. Stretch:** Build a labelled set of 15 alerts with the expected `category` and `urgent` values, and run each one through the `AlertTriage` structured-output call at `effort` `"low"` and `"high"`. Record category accuracy, urgency accuracy, median latency, and total input plus output tokens, and count refusals or parse failures as wrong answers. Done means you have a results table that includes cost per correct triage, calculated from the token counts and the current published prices, and a one-sentence recommendation based on it.
 
 # References and Further Reading
 

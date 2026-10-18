@@ -272,6 +272,14 @@ Two things changed the landscape in 2025–2026 and are worth knowing from day o
 
 You now possess the foundational knowledge required to build any AI application. Every complex system, from autonomous agents to sophisticated data analyzers, is built upon the simple, conversational pattern you've learned here. In the next chapter, we'll look at the three building blocks you will balance in every AI application: tokens (which drive cost), embeddings (which capture meaning), and the context window (the model's working memory).
 
+## Exercises
+
+**1. Warm-up:** Run the IoT status interpreter on the same device message with three different system messages: one for a field technician, one for a homeowner with no technical background, and one that says "Answer in exactly one sentence." Save the three outputs side by side. You are done when you can point to one concrete difference each system message caused, and you have checked whether the one-sentence version really is one sentence.
+
+**2. Build:** Wrap the interpreter in a function `explain_status(device_message: str) -> str` and run it over a list of five raw messages, including at least one malformed one such as `"TEMP_SENSOR_07: ??? STATUS:"`. Catch `openai.OpenAIError` around each call so one failure does not stop the batch. You are done when the script prints five results (or a clear error line) and you have written down whether the model admitted the malformed message was unreadable or invented a temperature for it.
+
+**3. Stretch:** Turn the interpreter into a small loop that reads follow-up questions from `input()` and appends both the user message and the model's reply (as an `assistant` message) to the conversation list before the next call. Ask "What should I check first?" and then "And if that looks fine?". You are done when the second answer clearly builds on the first without you repeating the device message, and when removing the line that appends the `assistant` reply visibly breaks that continuity.
+
 # References and Further Reading
 
 - The AI Engineering Handbook – How to Start a Career and Excel as an AI Engineer. https://www.freecodecamp.org/news/the-ai-engineering-handbook-how-to-start-a-career-and-excel-as-an-ai-engineer/

@@ -367,16 +367,24 @@ For live, two-way voice conversations, OpenAI also offers a dedicated real-time 
 
 You now have a practical understanding of the OpenAI API. You've moved from a simple "Hello, World!" to function calling, streaming, and multimodal analysis.
 
-You've learned:
--   The core `client.responses.create` call, and how it maps to the older Chat Completions API.
--   How to shape the AI's role with **instructions**.
--   How to build conversations by managing **history**, or with `previous_response_id`.
--   How to control output with **reasoning effort** and **output limits**, and when `temperature` applies.
--   How to create real-time experiences with **streaming**.
--   How to connect AI to the world with a proper **function-calling loop**.
--   How to work with images, PDFs, and audio.
-
 These are the building blocks you will use in every AI application you create.
+
+## Key Takeaways
+
+-   The core call is `client.responses.create(model=MODEL, instructions=..., input=...)`, read with `response.output_text`. Use the mapping table to translate older Chat Completions code (`messages`, `choices[0].message.content`, `max_completion_tokens`).
+-   The model is stateless. Either resend the full history on every call, or chain turns with `previous_response_id`, which is convenient but stores the conversation with OpenAI, still bills earlier turns as input, and ties you to one provider.
+-   On reasoning models, trade quality against cost and latency with `reasoning={"effort": ...}`, and cap length with `max_output_tokens`, which includes reasoning tokens (check `response.status == "incomplete"`). `temperature` is only accepted when reasoning is off; for predictable output, constrain it with fixed labels and Structured Outputs.
+-   Stream with `stream=True` and print only `response.output_text.delta` events. Expect a pause before the first text on reasoning models.
+-   A correct function-calling loop appends `response.output` to the history, answers every `function_call` with a `function_call_output` carrying the matching `call_id`, repeats until no calls remain, and caps the number of turns.
+-   Images and PDFs are `input_image` and `input_file` content parts; audio uses dedicated transcription and speech models whose names change, so check the deprecations page before pinning one.
+
+## Exercises
+
+**1. Warm-up:** Modify `SimpleChatbot.chat` to record `response.usage.input_tokens` and `response.usage.output_tokens` after every call, then hold a five-turn conversation with the IoT expert bot. Print a small table of turn number, input tokens, and output tokens. Done means the table shows input tokens growing every turn, which confirms that the full history is resent and billed each time.
+
+**2. Build:** Turn the weather bot into a device bot with two tools, `get_device_status(device_id)` and `get_battery_level(device_id)`, backed by a dictionary of a few fake devices. Make the dispatch robust: wrap each tool call in `try/except` and return `{"error": ...}` when the function raises or the device ID is unknown, instead of crashing the loop. Done means "Compare the battery levels of TEMP-01, TEMP-02 and HUM-99" returns one answer that mentions HUM-99 could not be found, and a log line per call shows that every `call_id` received exactly one `function_call_output`.
+
+**3. Stretch:** Build a labelled set of 10 IoT alerts, each tagged Power, Connectivity, or Sensor, and classify every alert with `reasoning={"effort": "low"}` and again with `"high"`, instructing the model to answer with the label only. For each effort level, record accuracy (an answer that is not exactly one of the three labels counts as wrong), median latency measured with `time.perf_counter()`, and total `output_tokens`, and treat `response.status == "incomplete"` as a failure. Done means you have a two-row results table and a one-sentence, data-backed recommendation for which effort level to use for this task.
 
 # References and Further Reading
 

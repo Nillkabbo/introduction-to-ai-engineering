@@ -294,6 +294,22 @@ You have learned to:
 
 With Gemini alongside OpenAI and Anthropic, you have a complete toolkit and can choose the provider and model that best fit each task.
 
+## Key Takeaways
+
+-   Use the `google-genai` SDK: `from google import genai`, `client = genai.Client()`, then `client.models.generate_content(model=..., contents=..., config=types.GenerateContentConfig(...))`. The `google-generativeai` package and `genai.GenerativeModel` are deprecated.
+-   System instructions, the thinking level (`types.ThinkingConfig(thinking_level=...)`), and tools all go in `GenerateContentConfig`. Catch `errors.APIError` to handle API failures.
+-   `client.chats.create` keeps the conversation history in your process's memory. In a multi-server application, store the history yourself and pass it back with `history=`.
+-   Pass small images inline with `types.Part.from_bytes`. Upload video, long audio, and large PDFs with `client.files.upload`, poll until the state is no longer `PROCESSING`, raise on `FAILED`, and delete the file when you are done.
+-   Automatic function calling turns ordinary typed, docstringed Python functions into tools and runs the loop for you. Disable it with `AutomaticFunctionCallingConfig(disable=True)` for tools that change the physical world, so you can validate arguments, log, and ask for confirmation first.
+
+## Exercises
+
+**1. Warm-up:** Add a `max_wait_seconds` parameter to `upload_and_wait` so it raises a clear error if the file is still `PROCESSING` after that long, and log the elapsed time and final state of every upload. Test it with a small PDF and with a video using a deliberately tiny limit (for example 1 second). Done means the PDF upload prints `ACTIVE` with its elapsed time, and the video upload raises your timeout error instead of polling forever.
+
+**2. Build:** Disable automatic function calling for the IoT tools and handle the calls yourself, using `response.function_calls` and `types.Part.from_function_response` (look up their exact usage in the SDK documentation). Before running `set_device_state`, validate that `state` is `"on"` or `"off"` and that the device is on an allow-list, then ask the operator to confirm with `input()`. Done means "Turn on FAN-01" asks for confirmation and, if you decline, the model reports that nothing was changed, while "Set FAN-01 to maximum" is rejected by your validation without the function ever running.
+
+**3. Stretch:** Write 10 questions about the SmartSense T-1000 manual from Chapter 6, each paired with an expected fact (for example "CR2032" or "10 seconds"), and include two whose answers are not in the manual. Run them through Gemini with `thinking_level="low"` and `"high"`, and through Claude and OpenAI using the helpers from Chapters 5 and 6, with the manual in the system instruction. Score each answer automatically by checking for the expected fact (or for an "not available" style reply on the two unanswerable questions), review the mismatches by hand, and record median latency. Done means you have one results table comparing accuracy and latency across providers and settings, plus a note on any cases where the automatic check was wrong.
+
 # References and Further Reading
 
 - Gemini API documentation (Google AI for Developers). https://ai.google.dev/gemini-api/docs

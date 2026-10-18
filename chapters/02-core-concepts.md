@@ -237,15 +237,24 @@ def trim_conversation_history(messages: list[dict], max_input_tokens: int = 100_
 
 This returns a new list instead of modifying the caller's, and always keeps the most recent messages. More advanced strategies summarize older turns instead of discarding them, or store facts in a database and retrieve them when relevant (Chapter 27). Some providers now also offer server-side helpers for this, such as Anthropic's automatic context compaction.
 
-## What You've Learned
+## Key Takeaways
 
-You now understand the three fundamental concepts that govern how you will build with LLMs.
-
-1.  **Tokens are the currency.** Every interaction has a cost. Be concise to save money.
-2.  **Embeddings capture meaning.** This allows for powerful semantic search and relevance ranking, far beyond simple keyword matching.
-3.  **Context windows bound the working memory.** The model only knows what you send in each request, the window caps how much that can be, and you are responsible for deciding what goes in.
+-   **Tokens are the unit of cost and latency.** You pay for every input and output token, and different providers tokenize the same text differently. Use `tiktoken` with `o200k_base` for quick estimates, and the response's `usage` object or the provider's token-counting endpoint for exact numbers.
+-   **Save tokens where it counts.** The big savings come from controlling large inputs (conversation history, pasted documents) and output length, not from shaving words off a one-line instruction. Never cut context the model actually needs.
+-   **Embeddings capture meaning as vectors.** `text-embedding-3-small` returns 1536 numbers per text, and you compare texts with cosine similarity (a plain dot product for OpenAI's normalized vectors; normalize first for other providers). Embed many texts in one API call.
+-   **Semantic search ranks, it does not reason.** It finds matches that share no keywords, but the top hit is not guaranteed to be the right fix, so retrieve the top few candidates and let a model or a person decide.
+-   **Every request is stateless.** The model only knows what you send in that call. Exceeding the context window gets the request rejected rather than silently forgotten, and your code decides what to keep, drop, or summarize.
+-   **A large window is not free.** Cost and latency grow with input size and quality drops for information buried in the middle, so trim history with a sliding window that keeps the system prompt, returns a copy, and leaves room for the reply.
 
 These three ideas—cost, meaning, and memory—are the levers you will constantly be pulling and balancing as an AI developer. In the next chapter, we will get our hands dirty and set up a professional development environment so you can start building real applications on this foundation.
+
+## Exercises
+
+**1. Warm-up:** Use `o200k_base` to count tokens for five IoT strings: a plain English status sentence, a pretty-printed JSON telemetry payload (for example `{"device_id": "TEMP-042", "temp_c": 85.2, "status": "WARNING"}` with indentation), the same payload as compact JSON with no spaces, a device UUID, and the status sentence translated into another language. Print a table of characters, tokens, and characters per token for each. Then send one of them through `client.responses.create` and compare `response.usage.input_tokens` with your estimate. You are done when you can explain which format is cheapest and why the billed count differs from your local count.
+
+**2. Build:** Extend `find_most_similar` into `top_k(query, options, k=3)` that returns `(option, score)` pairs sorted by score, and grow the knowledge base to about eight troubleshooting steps. Write a labelled test set of eight user complaints, each paired with the step you consider correct, and embed the knowledge base only once instead of on every query. You are done when the script prints top-1 and top-3 hit rates for your test set and you have looked at every miss to decide whether the query, the knowledge base wording, or the expected label was the problem.
+
+**3. Stretch:** Write tests (plain `assert` statements are fine) for `trim_conversation_history`: the system prompt is always kept, the caller's list is not modified, the result fits the budget, and the newest message is always included. One of these will fail when the newest message alone is larger than the budget, because the function then silently drops the user's question. Change the function to raise a clear error in that case and add a `reserve_output_tokens` parameter that is subtracted from the budget. You are done when all your tests pass, including one for the oversized-message case.
 
 # References and Further Reading
 

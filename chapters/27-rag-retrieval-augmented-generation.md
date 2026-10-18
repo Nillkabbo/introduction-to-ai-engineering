@@ -269,14 +269,24 @@ The approaches combine well. A common production design fine-tunes (or carefully
 
 Retrieval-Augmented Generation connects general-purpose models to specific, current, private knowledge, and it is the backbone of most knowledge-based AI applications.
 
-You have learned:
--   The complete RAG workflow: chunking, embedding, indexing, retrieval, and grounded generation with citations.
--   How to use a vector database, with metadata, idempotent indexing, and relevance thresholds.
--   That retrieval quality drives answer quality, and the main levers to improve it: structure-aware chunking, hybrid search, reranking, filtering, and query rewriting.
--   How to evaluate retrieval and answers separately.
--   How to choose between RAG, long-context prompting, and fine-tuning.
-
 By mastering RAG, you can build AI systems that answer questions about your products, your code, and your business: anything you can write down.
+
+## Key Takeaways
+
+-   RAG has two phases: offline indexing (chunk with overlap, embed, store in a vector database such as ChromaDB) and per-query retrieval plus grounded generation, where the model answers only from the retrieved sources and cites their IDs.
+-   Store metadata (source and chunk number) with every chunk and `upsert` with stable IDs like `file#chunk`, so citations and filtering work and re-indexing a file updates it instead of duplicating it.
+-   A vector search always returns its top results, even for questions your documents can't answer. Apply a distance threshold tuned on real questions, and have the assistant say it found nothing when no chunk passes.
+-   Retrieved text is untrusted input that can carry indirect prompt injection, and retrieval must filter by what the current user is allowed to see; otherwise the RAG system becomes a data leak.
+-   Most answer quality comes from retrieval: structure-aware chunking with headings attached, hybrid search (BM25 plus embeddings, merged with reciprocal rank fusion), reranking, and query rewriting. Measure retrieval (recall@k) separately from answer faithfulness, and check retrieval first when an answer is wrong.
+-   Use long-context prompting (with caching) for a small, stable document set, RAG for large, changing, or permission-controlled corpora, and fine-tuning for behavior; production systems often combine a tuned or well-prompted model with RAG for the facts.
+
+## Exercises
+
+**1. Warm-up:** Write 10 questions that the HydroCore manual answers and 10 that it doesn't (the warranty period, the capital of France, the operating pressure of a "HydroCore 6000"). Call `retrieve` with a permissive `max_distance=2.0` and print the distance of the top hit for every question. Done means you have chosen a `max_distance` from the data, and you report how many answerable questions it wrongly drops and how many unanswerable ones it wrongly lets through.
+
+**2. Build:** Grow the knowledge base to at least three manuals for different devices (give two of them an error code with the same name, such as `E-04`, meaning different things), and index them with a smaller `chunk_size` (around 200) so each manual produces several chunks. Build a test set of 20 questions, each with a short string that the correct passage must contain, and write a `recall_at_k(test_set, k)` function. Done means a printed table of recall@1, recall@3, and recall@5 for at least two chunking settings, and a note on which setting you would keep and why.
+
+**3. Stretch:** Add keyword search to the Build system with BM25 (for example the `rank_bm25` package) over the same chunks, and merge its ranking with the vector ranking using reciprocal rank fusion (score each chunk by the sum of `1 / (60 + rank)` across the two lists). Add a `product` metadata field and a filter so a question about one device can't retrieve another device's `E-04`. Done means recall@3 for vector-only versus hybrid on your test set, at least one question that hybrid search or the filter fixes (or evidence that neither helped on your data), and a decision to keep or drop each change based on those numbers.
 
 # References and Further Reading
 

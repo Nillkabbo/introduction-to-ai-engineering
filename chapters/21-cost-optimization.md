@@ -263,6 +263,23 @@ Cost optimization is about maximizing value per dollar, not just cutting spendin
 
 The startup that was spending $50,000 a month? By measuring first and then applying these techniques, they reduced their bill to under $8,000 while improving their service's responsiveness.
 
+## Key Takeaways
+
+-   Compute cost from the usage each response reports (uncached input, cached input, and output tokens, with reasoning tokens billed as output), not from a local tokenizer. Write one small cost function per provider and log the cost of every call with its feature, user, and model.
+-   Prompt caching matches the prefix exactly, so put stable content (system prompt, tool definitions, examples) first and variable content last. Timestamps near the top, tools in random order, and unsorted JSON silently break it; confirm hits with `usage.input_tokens_details.cached_tokens`.
+-   Batch APIs cost about half the normal price and suit anything that isn't interactive: nightly reports, backlog classification, embeddings, and eval runs. Use `custom_id` to match results back to inputs.
+-   Set reasoning effort per task, ask for the length you need, and cap runaway generations with `max_output_tokens`. On the input side, trim the big blocks you resend (history, retrieved chunks, tool lists) rather than polite words.
+-   Route on the feature or endpoint a request comes from, to the cheapest model that passes your evals. Before building a cascade, compare it with one capable model at lower reasoning effort, measured per completed task.
+-   Semantic caching needs a high similarity threshold, an entity guard so "T-101" never gets "T-102"'s answer, expiry, and a measured false-hit rate. ROI only means something if it counts non-API costs and uses measured, not assumed, value.
+
+## Exercises
+
+**1. Warm-up:** Use `answer_ticket` with a system prompt long enough to be cached (a few thousand tokens), call it three times with different tickets, and print `cached_tokens` and `openai_call_cost` for each call. Then move a timestamp to the front of the instructions, as in the "bad" example, and repeat. You are done when you can show cached tokens above zero on the second and third calls of the good layout, zero for the bad layout, and the cost difference between the two.
+
+**2. Build:** Change `openai_call_cost` to take the model name as a parameter, add a price entry for `gpt-6-sol`, and write a `log_call_cost(response, model, feature, user_id)` helper that appends one JSON line per call to a file. Send 20 requests through `SmartModelRouter` across the `tag_log`, `summarize`, and `plan_maintenance` features, then write a short script that reads the file and prints total cost, cost per feature, and each feature's share of the bill. Done means the per-feature totals add up exactly to the sum of the individual call costs, and you can say which feature to optimize first.
+
+**3. Stretch:** Measure the false-hit rate of `SemanticCache` before trusting it. Build a labelled set of at least 30 query pairs: paraphrases that should share an answer, and near-duplicates that must not (different device IDs, different time ranges, and negations such as "Is T-101 online?" versus "Is T-101 offline?"). Report hits and false hits at thresholds of 0.90, 0.95, and 0.98, with and without the entity guard. You are done when you can name the threshold with zero false hits on your set, and list the kinds of near-duplicates the entity guard does not catch.
+
 # References and Further Reading
 
 - Prompt caching (OpenAI). https://platform.openai.com/docs/guides/prompt-caching

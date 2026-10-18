@@ -345,6 +345,23 @@ This pipeline keeps direct identifiers inside your infrastructure, sends the mod
 
 AI security is defence in depth. Keep secrets in a secrets manager; assume prompt injection, especially indirect injection, will sometimes succeed; and design so that a manipulated model can't do much harm: least privilege, isolation of untrusted content, constrained outputs, human approval for consequential actions, and careful handling of what the model produces. Add data minimization, auditing, and compliance awareness, and you have the foundation for AI systems that users and businesses can trust.
 
+## Key Takeaways
+
+-   In production, read API keys at runtime from a secrets manager using the service's own identity, use separate keys per environment and application with spending limits, and prefer keyless workload identity federation where the provider supports it.
+-   Indirect prompt injection, where instructions hide inside logs, emails, uploads, retrieved documents, or tool output, is the main risk for agents and RAG. Check every design against the lethal trifecta and make sure no single agent combines private data, untrusted content, and a way to communicate externally.
+-   Delimiters, regex pattern lists, and model-based intent guards reduce or flag attacks, but they are signals, not security boundaries. The defences that hold are architectural: least privilege enforced in code, the end user's permissions, human approval for consequential actions, constrained structured outputs, and quarantining untrusted content in a tool-less call.
+-   Treat model output as untrusted input: never pass it unvalidated to a shell, SQL, `eval`, or a file path, escape it before rendering HTML, and watch for Markdown image links that exfiltrate data.
+-   Minimize and pseudonymize data before it leaves your infrastructure, replacing known identifiers from your own database plus regex or Presidio matches, and remember pseudonymized data is still personal data. Run output through moderation and fail closed if the check is unavailable.
+-   Write audit entries with user, model, prompt version, tokens, cost, tools called, and safety flags, storing hashes rather than raw prompts. Rate limits and spending caps defend against denial-of-wallet, and PHI goes only to services covered by a BAA.
+
+## Exercises
+
+**1. Warm-up:** Write a small script of `assert` checks for `pseudonymize` and `restore`: emails and phone numbers are replaced, a known identifier is replaced, and restoring the pseudonymized text gives back the original string exactly. Then try to break it: find at least three realistic inputs that leak personal data through (for example an international phone number, or a name the caller didn't pass in). You are done when the checks pass and you have a written list of the leaking inputs, each with a note on whether a better regex or a known-identifier lookup would fix it.
+
+**2. Build:** Close the delimiter gap noted in the chapter: write a function that removes or escapes `<user_report>` and `</user_report>` (in any letter case and with stray spaces) from untrusted text before `build_analysis_prompt` wraps it, and record any `injection_signals` matches in the `safety_flags` field of an `AuditLogEntry`. Then collect 10 injection attempts (direct, a closing tag, and one hidden in a device name like the Pump-7 example) and 10 benign maintenance reports, including one that says a sensor will "act as a backup", and run them all through `classify_user_intent`. Done means a check proves no delimiter string survives into the prompt, and you can report how many attacks were labelled `Manipulation` and how many benign reports were wrongly flagged.
+
+**3. Stretch:** Implement the quarantine pattern for the maintenance agent from the indirect-injection example. A tool-less model call reads the raw device log and returns only a Pydantic model (a device ID, an issue category from a fixed `Literal` set, and a severity); separate code then creates work orders only for device IDs in your known-device list, and requires human confirmation for any urgent order or for more than one order per log. You are done when feeding in the Pump-7 log creates at most one work order for Pump-7 itself, no orders for other pumps, and an audit entry that records the attempt.
+
 # References and Further Reading
 
 - [OWASP Top 10 for Large Language Model Applications](https://genai.owasp.org/llm-top-10/)

@@ -284,14 +284,24 @@ The concepts you have learned (tasks, dependencies, data passing, idempotency, r
 
 You can now think beyond single API calls and engineer complete, automated AI workflows.
 
-Key takeaways:
--   Real-world processes are workflows, often best modeled as **DAGs**, with agent loops inside bounded steps where needed.
--   An orchestrator computes the execution order, passes data between tasks, **retries** transient failures, and **stops downstream work** when something fails.
--   Tasks with side effects must be **idempotent**.
--   **Human-in-the-loop** approval is a critical safety pattern for high-stakes actions; use **durable execution** when approvals may take hours or days.
--   Use a DAG scheduler for pipelines and a durable-execution engine for long-running, interactive processes.
-
 By mastering workflow orchestration, you can build AI systems that are not just intelligent but also resilient and safely integrated into critical operations.
+
+## Key Takeaways
+
+-   Real-world processes are workflows, best modeled as **DAGs** of tasks with a uniform `(inputs, params)` signature, with agent loops kept inside bounded steps. Python's `graphlib.TopologicalSorter` computes a valid execution order, detects cycles, and its `get_ready()` / `done()` API is the basis for running independent tasks in parallel.
+-   An orchestrator **retries** transient failures with backoff, fails fast on permanent ones, and marks every task downstream of a failure as `skipped` with the reason, instead of feeding it bad data.
+-   Retry only **idempotent** tasks: give side-effecting steps (alerts, tickets, equipment commands) a unique key the receiving system can deduplicate on.
+-   Make AI steps return structured output (`client.responses.parse` with a Pydantic model) so branching code can rely on fields, and record each branch decision as data in the workflow state so you can see later why a path was taken.
+-   Put **human-in-the-loop** approval in front of consequential actions. A process blocked on `input()` can't wait days or survive a crash; that is the job of **durable execution** (Temporal, or LangGraph checkpoints and interrupts).
+-   Use a DAG scheduler (Airflow, Prefect, Dagster) for scheduled and batch pipelines, and a durable-execution engine for long-running processes with human steps.
+
+## Exercises
+
+**1. Warm-up:** Write pytest tests for `WorkflowOrchestrator`, setting `retry_delay_seconds=0` so they run instantly. Cover three cases: a task that fails twice and then succeeds with `max_retries=2` ends with status `success`; a task that always fails leaves its descendants `skipped` while an independent branch still succeeds; and a two-task cycle returns a `_workflow` status of `invalid`. Done means all three tests pass in under a second, and each one fails if you break the behavior it checks (for example by removing the skip logic).
+
+**2. Build:** Add a `run_parallel(params, max_workers=4)` method that uses `TopologicalSorter`'s `prepare()`, `get_ready()`, and `done()` with a `concurrent.futures.ThreadPoolExecutor`, keeping the same retry, state, and skip semantics as `run()`. Test it with a workflow where `alert` and `log` each sleep for one second after `analyze`. Done means the parallel run takes measurably less time than `run()` on that workflow, both methods produce the same final statuses, and your Warm-up tests pass against both.
+
+**3. Stretch:** Make the incident-response workflow resumable: after each task, write the workflow state to a JSON file named after a run ID, and on a rerun with the same ID skip every task already marked `success`. Replace the console approval with a task that fails with a clear "waiting for approval" status until an `approval.json` file (containing `approved` and `approver`) exists. Done means you can start the workflow, stop it at the approval step, write the approval file, rerun it, and show from a call counter or log that `ai_initial_diagnosis` ran exactly once while the final report is produced. Write two sentences on what this toy still lacks compared to a real durable-execution engine.
 
 # References and Further Reading
 
