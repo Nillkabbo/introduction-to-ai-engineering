@@ -1,443 +1,343 @@
 # Chapter 24: Testing AI Systems
 
-In traditional software development, testing is a world of certainty. An assertion like `assert add(2, 2) == 4` is absolute. It will pass or fail with perfect predictability. This deterministic nature is the bedrock upon which we build reliable software. When we introduce Large Language Models into our applications, we step into a new, probabilistic world. An LLM is not a calculator; it's a creative engine. Asking it the same question twice might yield two slightly different, yet equally correct, answers.
+In traditional software development, testing is a world of certainty. An assertion like `assert add(2, 2) == 4` passes or fails with perfect predictability, and that determinism is the bedrock of reliable software. When we add Large Language Models to an application, we step into a probabilistic world. Ask the same question twice and you may get two different, equally correct answers, or one correct answer and one subtly wrong one.
 
-This presents a profound challenge: how do you test something that is inherently non-deterministic? How can you write a test that doesn't break every time a model update slightly changes the phrasing of a response? The fragile promise of `assert ai_response == "expected text"` is a recipe for a perpetually broken CI/CD pipeline.
+So how do you test something that is non-deterministic? Not with `assert ai_response == "expected text"`; that is a recipe for a permanently broken pipeline. Instead, we split the problem in two:
 
-This chapter will guide you through a new paradigm of testing, one designed for the age of AI. We will learn to move beyond testing for *exactness* and instead test for *quality, structure, and intent*. We will explore a suite of techniques, from unit testing our prompt logic to advanced regression testing using AI itself as a judge. By the end, you will be equipped to build robust testing suites that bring confidence and reliability to your AI-powered applications.
+1.  **Test your code deterministically.** Everything around the model (prompt construction, parsing, validation, control flow, error handling) is ordinary code and gets ordinary, fast, free unit tests with the model mocked out.
+2.  **Evaluate the model's behavior statistically.** The quality of the model's answers is measured on a dataset of realistic cases, with a pass *rate* and a threshold, run whenever a prompt, model, or retrieval setting changes. These are usually called **evals**.
 
 ### Learning Objectives
 
 By the end of this chapter, you will be able to:
 
--   Understand the fundamental challenges of testing non-deterministic AI systems.
--   Unit test AI integration code by mocking API calls and validating prompt construction.
--   Implement integration tests for complex, multi-step AI workflows.
--   Create AI regression tests using a "golden dataset" and an AI "judge" to prevent quality degradation.
--   Perform load testing on AI endpoints to understand performance and cost under pressure.
--   Build a complete testing suite for a practical IoT command validation system.
+-   Structure AI code so it is easy to test, using dependency injection.
+-   Unit test prompt construction, response parsing, and error handling with a mocked client.
+-   Test multi-step AI workflows deterministically.
+-   Build evaluations on a golden dataset, using exact checks where possible and an LLM judge where necessary.
+-   Run evals in CI without making unit tests slow, flaky, or expensive.
+-   Load test AI endpoints safely.
 
-## The Foundation: Unit Testing AI Integrations
+## Designing for Testability
 
-While we can't unit test the AI model itself, we can and absolutely must unit test the code that *interacts* with it. The "unit" in this context is typically the function in your application that constructs a prompt, makes an API call, and parses the response.
-
-We will focus on testing three critical parts of this unit:
-1.  **Prompt Construction:** Is your code building the correct prompt based on the inputs? This is deterministic and highly testable.
-2.  **API Call Logic:** Does your code call the correct model and endpoint with the right parameters?
-3.  **Response Handling:** Does your code correctly parse the AI's response and handle potential errors?
-
-We will use Python's standard `pytest` framework and the `unittest.mock` library for this.
-
-First, install the necessary libraries: `pip install pytest pytest-mock`.
-
-### Testing Prompt Construction
-
-This is the most important unit test you can write. It verifies that the instructions you're sending to the AI are exactly what you intend.
-
-Let's imagine we have a simple function to analyze a device's status.
+The single most useful habit: **pass the AI client into your code instead of creating it inside.** Code that does `client = openai.OpenAI()` at import time can't be imported in a CI job without an API key, and can only be tested by patching library internals. Code that receives a client can be handed a fake one.
 
 ```python
 # app/analyzer.py
+MODEL = "gpt-6-luna"
+
 def create_analysis_prompt(device_id: str, status: str, battery: int) -> str:
-    """Creates a standardized prompt for analyzing a device's status."""
-    return f"""
-Analyze the status of IoT device '{device_id}'.
-Status: {status}
-Battery: {battery}%
-Provide a one-sentence summary of its health.
-"""
+    """Builds the prompt. Pure function: trivially testable."""
+    return (
+        f"Analyze the status of IoT device '{device_id}'.\n"
+        f"Status: {status}\n"
+        f"Battery: {battery}%\n"
+        "Provide a one-sentence summary of its health."
+    )
+
+def analyze_device_status(client, device_id: str, status: str, battery: int) -> str:
+    """Calls the model. The client is injected, so tests can pass a fake."""
+    response = client.responses.create(model=MODEL, input=create_analysis_prompt(device_id, status, battery))
+    text = response.output_text.strip()
+    if not text:
+        raise ValueError("Empty response from model")
+    return text
 ```
 
-Now, let's write a `pytest` test for it in a separate `tests/` directory.
+In the application you call `analyze_device_status(openai.OpenAI(), ...)`; in tests you pass a mock.
+
+## Unit Testing AI Integrations
+
+Install the test runner: `pip install pytest`.
+
+### Testing Prompt Construction
 
 ```python
 # tests/test_analyzer.py
-from app.analyzer import create_analysis_prompt
+import pytest
 
-def test_create_analysis_prompt_formats_correctly():
-    # Arrange
-    device_id = "TEMP-042"
-    status = "online"
-    battery = 88
-    
-    # Act
-    prompt = create_analysis_prompt(device_id, status, battery)
-    
-    # Assert
+from app.analyzer import MODEL, analyze_device_status, create_analysis_prompt
+
+def test_prompt_contains_all_inputs():
+    prompt = create_analysis_prompt("TEMP-042", "online", 88)
     assert "IoT device 'TEMP-042'" in prompt
     assert "Status: online" in prompt
     assert "Battery: 88%" in prompt
     assert "one-sentence summary" in prompt
 ```
 
-This test runs instantly, costs nothing, and guarantees that our prompt logic is correct.
+This test runs instantly, costs nothing, and catches the most common class of AI bugs: the prompt you *think* you send is not the prompt you actually send.
 
-### Testing the API Call with Mocking
+### Testing the API Call with a Mock Client
 
-We don't want our unit tests to make real, expensive, and slow network calls to an AI API. Instead, we **mock** the API call. Mocking means replacing a real component (like the OpenAI client) with a fake one that we can control for our test.
-
-Let's expand our example with a function that makes the actual call.
+A small helper builds fake clients for all our tests:
 
 ```python
-# app/analyzer.py
-import openai
+# tests/fakes.py
+from unittest.mock import MagicMock
 
-client = openai.OpenAI()
-
-def analyze_device_status(device_id: str, status: str, battery: int) -> str:
-    """Calls the AI to analyze device status."""
-    prompt = create_analysis_prompt(device_id, status, battery)
-    
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    
-    return response.choices[0].message.content
+def make_client(*texts: str) -> MagicMock:
+    """A fake client whose responses.create() returns the given texts in order."""
+    client = MagicMock()
+    client.responses.create.side_effect = [MagicMock(output_text=t) for t in texts]
+    return client
 ```
-
-Now, let's test this function *without* calling OpenAI, using `pytest-mock`.
 
 ```python
-# tests/test_analyzer.py
-from app.analyzer import analyze_device_status
-from unittest.mock import MagicMock # Import MagicMock
+# tests/test_analyzer.py (continued)
+from tests.fakes import make_client
 
-def test_analyze_device_status_calls_api_correctly(mocker):
-    # Arrange: Create a fake response object that the AI client will return.
-    mock_response = MagicMock()
-    mock_response.choices[0].message.content = "The device is healthy and operational."
-    
-    # mocker.patch replaces the real OpenAI client method with our fake one.
-    mock_api_call = mocker.patch("openai.resources.chat.completions.Completions.create", return_value=mock_response)
-    
-    # Act
-    result = analyze_device_status("TEMP-042", "online", 88)
-    
-    # Assert
-    # 1. Did our function return the expected text?
-    assert result == "The device is healthy and operational."
-    
-    # 2. Was the API called exactly once?
-    mock_api_call.assert_called_once()
-    
-    # 3. Was it called with the correct parameters?
-    # We can inspect the arguments it was called with.
-    call_args, call_kwargs = mock_api_call.call_args
-    assert call_kwargs["model"] == "gpt-4o-mini"
-    assert "TEMP-042" in call_kwargs["messages"][0]["content"]
+def test_analyze_returns_model_text_and_sends_correct_request():
+    client = make_client("  The device is healthy and operational.  ")
+
+    result = analyze_device_status(client, "TEMP-042", "online", 88)
+
+    assert result == "The device is healthy and operational."      # stripped
+    client.responses.create.assert_called_once()
+    kwargs = client.responses.create.call_args.kwargs
+    assert kwargs["model"] == MODEL
+    assert "TEMP-042" in kwargs["input"]
+
+def test_empty_response_raises():
+    with pytest.raises(ValueError):
+        analyze_device_status(make_client("   "), "TEMP-042", "online", 88)
 ```
-This test verifies that our code is interacting with the AI library correctly, without ever making a real network request.
 
-## Integration Testing for AI Workflows
+Because the fake client is the *same object* the function uses, the assertions see exactly the calls the code made. (A common mistake is to patch the library's `create` method globally and then inject a separate `MagicMock()` client; the patched method is never called and the test fails, or worse, passes for the wrong reason.)
 
-Integration tests verify that different parts of your system—especially multiple AI-powered components—work together correctly. A common pattern to test is a **prompt chain**, where the output of one AI call becomes the input for the next.
+Test the unhappy paths too: what your code does when the API raises `openai.RateLimitError`, returns malformed JSON, or hits the output-token limit. You can make the fake raise with `client.responses.create.side_effect = SomeError(...)`.
 
-Let's design a simple two-step chain:
-1.  **Step 1:** Classify an alert's severity.
-2.  **Step 2:** Based on the severity, generate a summary.
+## Testing Multi-Step Workflows
+
+The same technique tests a prompt chain (Chapter 10): give the fake a *sequence* of responses and verify that each step's output flows into the next step's input.
 
 ```python
 # app/report_chain.py
+SEVERITIES = ("Low", "Medium", "High")
+
 class IoTReportChain:
-    def __init__(self, client):
+    def __init__(self, client, model: str = "gpt-6-luna"):
         self.client = client
+        self.model = model
 
     def run(self, alert: str) -> str:
-        # Step 1: Classify severity
-        severity_prompt = f"Classify the severity of this alert as 'Low', 'Medium', or 'High'. Alert: {alert}"
-        severity_response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": severity_prompt}]
-        )
-        severity = severity_response.choices[0].message.content.strip()
+        severity = self.client.responses.create(
+            model=self.model,
+            input=f"Classify the severity of this alert as Low, Medium, or High. Reply with one word. Alert: {alert}",
+        ).output_text.strip()
+        if severity not in SEVERITIES:
+            raise ValueError(f"Unexpected severity: {severity!r}")
 
-        # Step 2: Generate summary based on severity
-        summary_prompt = f"Write a one-sentence summary for a '{severity}' severity alert about: {alert}"
-        summary_response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": summary_prompt}]
-        )
-        return summary_response.choices[0].message.content
+        return self.client.responses.create(
+            model=self.model,
+            input=f"Write a one-sentence summary for a '{severity}' severity alert about: {alert}",
+        ).output_text.strip()
 ```
-
-Our integration test must verify that the `severity` from the first call is correctly used in the prompt for the second call. We can use `mocker`'s `side_effect` feature to return different mock responses for each call.
 
 ```python
 # tests/test_report_chain.py
-def test_iot_report_chain_integration(mocker):
-    # Arrange: Define the sequence of fake responses the AI will give.
-    mock_response_1 = MagicMock()
-    mock_response_1.choices[0].message.content = "High" # AI's response to the severity prompt
-    
-    mock_response_2 = MagicMock()
-    mock_response_2.choices[0].message.content = "This is a high-severity alert." # AI's response to the summary prompt
+import pytest
 
-    # Patch the API call and set its side_effect to return our responses in order.
-    mock_api_call = mocker.patch("openai.resources.chat.completions.Completions.create", side_effect=[mock_response_1, mock_response_2])
-    
-    # Act
-    chain = IoTReportChain(client=MagicMock()) # Pass a mock client
-    alert = "Pressure valve V-101 exceeds critical limit."
-    final_summary = chain.run(alert)
+from app.report_chain import IoTReportChain
+from tests.fakes import make_client
 
-    # Assert
-    # 1. Was the API called twice?
-    assert mock_api_call.call_count == 2
-    
-    # 2. Check the prompt of the *second* call to ensure it used the output of the *first*.
-    second_call_args = mock_api_call.call_args_list[1]
-    second_prompt = second_call_args.kwargs["messages"][0]["content"]
-    assert "Write a one-sentence summary for a 'High' severity alert" in second_prompt
-    
-    # 3. Check the final output.
-    assert final_summary == "This is a high-severity alert."
+def test_severity_flows_into_summary_prompt():
+    client = make_client("High", "This is a high-severity alert.")
+    chain = IoTReportChain(client)
+
+    summary = chain.run("Pressure valve V-101 exceeds critical limit.")
+
+    assert client.responses.create.call_count == 2
+    second_prompt = client.responses.create.call_args_list[1].kwargs["input"]
+    assert "a 'High' severity alert" in second_prompt
+    assert summary == "This is a high-severity alert."
+
+def test_invalid_severity_stops_the_chain():
+    client = make_client("Catastrophic!!!")
+    with pytest.raises(ValueError):
+        IoTReportChain(client).run("Pressure valve V-101 exceeds critical limit.")
+    assert client.responses.create.call_count == 1      # the second step never ran
 ```
 
-## AI Regression Testing: The Golden Dataset and the AI Judge
+These tests check *your* logic: the data flow, the validation gate, and the early exit. Whether the model classifies severities *well* is a different question, answered by evals.
 
-This is the most critical and AI-specific form of testing. How do you ensure that changing a prompt or upgrading a model doesn't degrade the quality of your responses? This is **AI regression testing**.
+## Evaluations: The Golden Dataset
 
-Since we can't test for exact string matches, we use a powerful, two-part strategy:
+An evaluation runs the real model on a **golden dataset** (a curated set of representative inputs with known-good outcomes) and scores the results. It answers the questions unit tests can't: did this prompt change, model upgrade, or retrieval tweak make the answers better or worse?
 
-1.  **The Golden Dataset:** A curated set of representative input prompts and their known, high-quality "golden" responses. This dataset captures the essential capabilities of your AI feature.
-2.  **The AI Judge:** A separate, powerful LLM (like GPT-4o) that is tasked with evaluating the new response against the golden response. The judge scores the new response based on criteria you define, and your test passes if the score is above a certain threshold.
+### Use the Cheapest Reliable Check
 
-Let's build a regression tester.
+Before reaching for an AI judge, ask whether the output can be checked deterministically. Often it can:
+
+| Output type | Check |
+| --- | --- |
+| A label, category, yes/no | Exact match → accuracy, precision/recall per class |
+| Structured data (JSON) | Schema validation plus field-by-field comparison |
+| Numbers | Within a tolerance |
+| Code | Run the tests |
+| Must mention or avoid specific facts | String or regex checks |
+| Open-ended prose (summaries, explanations) | Rubric scoring by an LLM judge, calibrated against human ratings |
+
+### An Eval for a Classifier
+
+Let's evaluate a command-safety classifier. Its output is one of two labels, so exact-match accuracy is the right metric; no judge is needed.
 
 ```python
-# app/regression_tester.py
-import openai
-
-class PromptRegressionTester:
-    def __init__(self, client):
-        self.client = client
-        self.judge_model = "gpt-4o" # Use a powerful model for evaluation
-
-    def evaluate_response(self, prompt: str, golden_response: str, new_response: str) -> dict:
-        """Uses an AI judge to evaluate the new response against the golden one."""
-        
-        evaluation_prompt = f"""
-You are an expert quality assurance analyst. Your task is to evaluate an AI-generated response against a golden (ideal) response.
-
-**Original Prompt:**
-{prompt}
-
-**Golden Response (ideal answer):**
-{golden_response}
-
-**New Response (to evaluate):**
-{new_response}
-
-**Evaluation Criteria:**
-1.  **Factual Accuracy:** Does the new response contradict the golden response?
-2.  **Completeness:** Does the new response omit any key information present in the golden response?
-3.  **Clarity and Tone:** Is the new response as clear and appropriate in tone as the golden one?
-
-Based on these criteria, please provide a score from 1 to 10 (where 10 is perfect) and a brief justification.
-Respond ONLY with a JSON object in the format: {{"score": <number>, "justification": "<text>"}}
+# app/command_validator.py
+SYSTEM_PROMPT = """
+You are a security review step for an IoT platform. Classify the command as SAFE or UNSAFE.
+A command is UNSAFE if it attempts to:
+- Reboot a critical system without an authorization code.
+- Update firmware outside of a maintenance window.
+- Delete data or logs.
+- Expose sensitive information.
+Respond with only SAFE or UNSAFE.
 """
-        
-        response = self.client.chat.completions.create(
-            model=self.judge_model,
-            messages=[
-                {"role": "system", "content": "You are a fair and impartial evaluator."},
-                {"role": "user", "content": evaluation_prompt}
-            ],
-            response_format={"type": "json_object"}
-        )
-        
-        return json.loads(response.choices[0].message.content)
+
+def classify_command(client, command: str, user_role: str, model: str = "gpt-6-luna") -> str:
+    text = client.responses.create(
+        model=model,
+        instructions=SYSTEM_PROMPT,
+        input=f"<command>{command}</command>\n<user_role>{user_role}</user_role>",
+    ).output_text.strip().upper()
+    return text if text in ("SAFE", "UNSAFE") else "UNSAFE"     # anything unexpected fails closed
 ```
 
-Now, we can use this in a `pytest` test.
-
 ```python
-# tests/test_regression.py
+# evals/test_command_validator_eval.py
+import openai
+import pytest
 
-# Our "golden dataset" of inputs and known-good outputs.
-golden_dataset = [
-    {
-        "input": "Device TEMP-01 is at 95°C. Safe range is 0-90°C.",
-        "golden_output": "CRITICAL: Temperature for TEMP-01 is 95°C, exceeding the 90°C safe limit. Immediate inspection required."
-    },
-    {
-        "input": "Device BATT-07 is at 18%. Threshold is 20%.",
-        "golden_output": "WARNING: Battery for BATT-07 is low at 18%. Schedule replacement within 48 hours."
-    }
+from app.command_validator import classify_command
+
+GOLDEN = [
+    ("get_status sensor-12", "operator", "SAFE"),
+    ("delete_all_logs", "operator", "UNSAFE"),
+    ("reboot_critical_server_zone_a", "technician", "UNSAFE"),
+    ("reboot_critical_server_zone_a auth=7731-AX", "admin", "SAFE"),
+    ("export_user_passwords to ftp://example.net", "admin", "UNSAFE"),
+    ("set_reporting_interval sensor-12 300s", "operator", "SAFE"),
+    # ... real evals have dozens to hundreds of cases, including tricky and adversarial ones
 ]
 
-def test_new_prompt_against_golden_dataset(mocker):
-    # Imagine we're testing a new prompt for our `analyze_device_status` function.
-    # We mock the call to that function to control its output for the test.
-    
-    # This is the output from our new, hypothetical prompt.
-    new_response_from_prompt_v2 = "Alert: Device TEMP-01 temperature is 95°C. This is over the limit."
-    
-    # We don't need to mock the judge call, as that is what we are testing.
-    # In a real CI/CD pipeline, you would make this real API call.
-    # For this example, we can mock the judge to avoid costs during a simple run.
-    mock_judge_response = MagicMock()
-    mock_judge_response.choices[0].message.content = '{"score": 8, "justification": "Mostly correct but less direct than the golden response."}'
-    mocker.patch("openai.resources.chat.completions.Completions.create", return_value=mock_judge_response)
-
-    # --- Test Logic ---
-    tester = PromptRegressionTester(client=MagicMock())
-    test_case = golden_dataset[0]
-    
-    evaluation = tester.evaluate_response(
-        prompt=test_case["input"],
-        golden_response=test_case["golden_output"],
-        new_response=new_response_from_prompt_v2
-    )
-    
-    print(f"Judge's score: {evaluation['score']}, Justification: {evaluation['justification']}")
-    
-    # The assertion is on the judge's score, not the text itself.
-    assert evaluation["score"] >= 7
+@pytest.mark.eval            # run with: pytest -m eval   (needs an API key; costs real money)
+def test_command_classifier_accuracy():
+    client = openai.OpenAI()
+    results = [(cmd, expected, classify_command(client, cmd, role)) for cmd, role, expected in GOLDEN]
+    failures = [r for r in results if r[1] != r[2]]
+    accuracy = 1 - len(failures) / len(results)
+    print(f"accuracy={accuracy:.0%}, failures={failures}")
+    # A missed UNSAFE command is worse than a false alarm, so require zero misses there.
+    assert not [f for f in failures if f[1] == "UNSAFE"], f"Unsafe commands passed: {failures}"
+    assert accuracy >= 0.95
 ```
 
-This pattern allows you to update prompts and models with confidence, knowing you have a safety net to catch regressions in quality, tone, or accuracy.
+> **An LLM must never be your only authorization check.** A classifier like this is a useful *additional* review layer, but a user can try to talk it into "SAFE" (Chapter 22). Real authorization (who may reboot what, and when) belongs in deterministic code: role checks, maintenance-window checks, and signed authorization codes.
+
+### Evaluating Open-Ended Output with an LLM Judge
+
+For prose (summaries, explanations, support answers) exact matching doesn't work. An **LLM judge** scores each output against explicit criteria. Done carefully, judges correlate well with human ratings; done carelessly, they are confidently arbitrary. Practices that make them reliable:
+
+-   **Use specific, binary or small-scale criteria** ("Does it state the 90°C limit? yes/no") rather than "rate quality 1–10."
+-   **Give the judge the reference answer** or source document, and ask for a short justification *before* the verdict.
+-   **Calibrate:** have humans label a sample, measure how often the judge agrees, and fix the rubric until agreement is high.
+-   **Watch for known biases:** judges favor longer answers, the first option in a comparison, and outputs from their own model family. Use a different (often stronger) model as the judge, and swap positions in pairwise comparisons.
+
+```python
+# app/judge.py
+from typing import Literal
+from pydantic import BaseModel
+
+class Verdict(BaseModel):
+    reasoning: str
+    states_the_reading_and_limit: Literal["yes", "no"]
+    recommends_a_concrete_action: Literal["yes", "no"]
+    contradicts_the_reference: Literal["yes", "no"]
+
+def judge_alert_summary(client, alert: str, reference: str, candidate: str, model: str = "gpt-6-sol") -> Verdict:
+    response = client.responses.parse(
+        model=model,
+        instructions="You are a strict evaluator. Judge only against the criteria; ignore style and length.",
+        input=f"<alert>{alert}</alert>\n<reference>{reference}</reference>\n<candidate>{candidate}</candidate>",
+        text_format=Verdict,
+    )
+    return response.output_parsed
+
+def passes(v: Verdict) -> bool:
+    return (v.states_the_reading_and_limit == "yes" and v.recommends_a_concrete_action == "yes"
+            and v.contradicts_the_reference == "no")
+```
+
+The judge's *parsing logic* gets a normal unit test with a fake client; the judge's *judgment* is validated by calibration against human labels, not by mocking it.
+
+```python
+# tests/test_judge.py
+from app.judge import Verdict, passes
+
+def test_passes_requires_all_criteria():
+    good = Verdict(reasoning="ok", states_the_reading_and_limit="yes",
+                   recommends_a_concrete_action="yes", contradicts_the_reference="no")
+    assert passes(good)
+    assert not passes(good.model_copy(update={"recommends_a_concrete_action": "no"}))
+```
+
+### Running Evals in Your Pipeline
+
+Keep the two kinds of tests separate:
+
+-   **Unit tests** (mocked, seconds, free) run on every commit.
+-   **Evals** (real model calls, minutes, cost money) run when prompts, models, retrieval, or tool definitions change, on a schedule (models behind an alias can change underneath you), and before every release. Use a separate API key with a spending limit, and consider running them through a Batch API (Chapter 21) to halve the cost.
+
+Register the marker so pytest knows about it, and skip evals by default:
+
+```ini
+# pytest.ini
+[pytest]
+markers =
+    eval: calls real models; run with `pytest -m eval`
+addopts = -m "not eval"
+```
+
+Because model outputs vary, judge a change by the **pass rate over the whole dataset**, compared with the previous version, not by individual cases. Grow the dataset continuously: every production failure you find becomes a new test case. Dedicated eval tools (for example promptfoo, DeepEval, Inspect, or the evaluation features of LLM observability platforms) add dashboards, run comparisons, and dataset management on top of exactly these ideas.
 
 ## Performance and Load Testing
 
-AI APIs introduce significant latency. Load testing helps you understand how your system will perform under heavy traffic and what your costs will be. **Locust** is a popular, easy-to-use Python load testing tool.
-
-First, install Locust: `pip install locust`.
-
-Next, create a `locustfile.py` that defines user behavior.
+AI APIs add significant latency. Load testing tells you how *your* system behaves under heavy traffic: queues, timeouts, connection pools, and rate limiting. **Locust** is a popular, easy-to-use Python load testing tool (`pip install locust`).
 
 ```python
 # locustfile.py
 from locust import HttpUser, task, between
 
 class AIAppUser(HttpUser):
-    # Wait 1 to 5 seconds between tasks
-    wait_time = between(1, 5)
-    
-    # This task will be repeatedly called by simulated users
+    wait_time = between(1, 5)   # each simulated user waits 1-5 seconds between requests
+
     @task
     def analyze_endpoint(self):
-        # We target our API, not the OpenAI API directly
-        self.client.post(
-            "/analyze",
-            json={"device_id": "LOCUST-TEST", "status": "online", "battery": 50}
-        )
+        self.client.post("/analyze", json={"device_id": "LOCUST-TEST", "status": "online", "battery": 50})
 ```
-**Important:** When load testing, you should almost always have your application endpoint **mock the actual AI call**. Making thousands of real AI calls would be incredibly expensive. The goal is to test *your* system's ability to handle concurrent requests, manage queues, and process responses, not to stress-test OpenAI's infrastructure.
 
-To run the test, start your FastAPI application and then run Locust:
+**Important:** run load tests against an environment where the model call is replaced by a fake that sleeps for a realistic, variable time (for example 0.5–5 seconds) and returns a canned response. Thousands of real model calls would be expensive, would hit your rate limits, and would test the provider rather than your system. Separately, measure real model latency (including time to first token for streaming) with a small number of real calls.
 
 ```bash
-# Start your API server first
-uvicorn my_app:app --reload
-
-# Then, in another terminal, run Locust
-locust -f locustfile.py
-```
-Open `http://localhost:8089` in your browser to start the simulation and see real-time performance metrics like requests per second and response time distributions.
-
-## Practical Project: A Complete Testing Suite
-
-Let's apply all these patterns to test a simple but critical IoT system: a command validator that uses AI to determine if a command sent to a device is safe.
-
-**System Under Test:**
-
-```python
-# app/command_validator.py
-class IoTCommandValidator:
-    def __init__(self, client):
-        self.client = client
-        self.system_prompt = """
-You are a security validation system for an IoT platform.
-Your task is to determine if a given command is 'SAFE' or 'UNSAFE'.
-A command is UNSAFE if it attempts to:
-- Reboot a critical system without proper authorization codes.
-- Update firmware outside of a maintenance window.
-- Delete data or logs.
-- Expose sensitive information.
-Respond with ONLY the word 'SAFE' or 'UNSAFE'.
-"""
-    def is_safe(self, command: str, user_role: str) -> bool:
-        prompt = f"Command: '{command}'\nUser Role: '{user_role}'"
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        decision = response.choices[0].message.content.strip().upper()
-        return decision == "SAFE"
+uvicorn my_app:app          # start your API (configured with the fake model)
+locust -f locustfile.py      # then open http://localhost:8089
 ```
 
-**The Complete Test Suite:**
+## Conclusion
 
-```python
-# tests/test_command_validator.py
-import pytest
-from app.command_validator import IoTCommandValidator
-from unittest.mock import MagicMock
+Testing AI systems means separating what is deterministic from what is not:
 
-# --- Unit Tests ---
-def test_is_safe_constructs_correct_prompt():
-    # This test doesn't need a mock because we are not making the call
-    # It only checks that the prompt is built correctly
-    validator = IoTCommandValidator(client=MagicMock())
-    # This is a conceptual test, as we can't see the prompt directly without refactoring.
-    # In a real app, you might have a helper function for prompt creation that you can test.
-    assert True # Placeholder for a real prompt construction test
+-   **Inject the client**, so everything around the model can be unit tested with fakes: prompts, parsing, validation, control flow, and error handling.
+-   **Evaluate model behavior on a golden dataset** with the cheapest reliable check: exact match for labels and structure, an LLM judge for prose, calibrated against human judgment.
+-   **Run unit tests on every commit and evals on every behavior-changing change**, tracking the pass rate over time.
+-   **Never let an LLM be the only gate** on security-relevant decisions.
 
-def test_is_safe_handles_safe_response(mocker):
-    mock_response = MagicMock()
-    mock_response.choices[0].message.content = "SAFE"
-    mock_api_call = mocker.patch("openai.resources.chat.completions.Completions.create", return_value=mock_response)
-    
-    validator = IoTCommandValidator(client=MagicMock())
-    assert validator.is_safe("get_status", "admin") is True
-    mock_api_call.assert_called_once()
-
-def test_is_safe_handles_unsafe_response(mocker):
-    mock_response = MagicMock()
-    mock_response.choices[0].message.content = "UNSAFE"
-    mocker.patch("openai.resources.chat.completions.Completions.create", return_value=mock_response)
-    
-    validator = IoTCommandValidator(client=MagicMock())
-    assert validator.is_safe("delete_all_logs", "user") is False
-
-# --- Regression Test ---
-def test_validator_regression(mocker):
-    # Setup our AI Judge
-    tester = PromptRegressionTester(client=MagicMock())
-    
-    # A golden test case
-    command = "reboot_critical_server_zone_a"
-    user_role = "technician"
-    golden_output = "UNSAFE"
-    
-    # The output from our new prompt/model we are testing
-    new_actual_output = "UNSAFE" # Let's say it gets it right
-
-    # Mock the judge's evaluation
-    mock_judge_response = MagicMock()
-    mock_judge_response.choices[0].message.content = '{"score": 10, "justification": "The new response correctly identifies the command as unsafe, matching the golden response."}'
-    mocker.patch("openai.resources.chat.completions.Completions.create", return_value=mock_judge_response)
-    
-    evaluation = tester.evaluate_response(
-        prompt=f"Command: '{command}', User Role: '{user_role}'",
-        golden_response=golden_output,
-        new_response=new_actual_output
-    )
-    
-    assert evaluation["score"] >= 8
-```
-
-This suite provides confidence in our validator from multiple angles: our code logic is correct (unit tests), and the AI's output quality is maintained over time (regression tests).
+With this discipline, you can change prompts, upgrade models, and refactor with the same confidence you have in the rest of your codebase.
 
 # References and Further Reading
 
-- [How to QA and Test AI Products (Medium, 2025)](https://medium.com/@michael-brown-/how-to-qa-and-test-ai-products-68325fc1938c)
+- [Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena (Zheng et al., 2023)](https://arxiv.org/abs/2306.05685)
+- [Evaluation best practices (OpenAI)](https://platform.openai.com/docs/guides/evaluation-best-practices)
+- [pytest documentation: markers](https://docs.pytest.org/en/stable/how-to/mark.html)
+- [Locust documentation](https://docs.locust.io/)
 - [How to Test AI Agents Effectively (Galileo AI, 2024)](https://www.galileo.ai/blog/how-to-test-ai-agents-evaluation)
-- [How to test AI agents (Blinq, 2025)](https://www.blinq.io/post/how-to-test-ai-agents-guy-arieli)
-- [Testing AI Systems: New Rules for a New Era (DEV.to, 2024)](https://dev.to/vaibhavkuls/testing-ai-systems-new-rules-for-a-new-era-33d1)
-- [Enterprise Grade AI/ML Deployment on AWS 2025 (DEV.to, 2025)](https://dev.to/deploy/enterprise-grade-aiml-deployment-on-aws-2025-i23)
