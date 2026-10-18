@@ -1,303 +1,249 @@
 # Chapter 26: Fine-Tuning and Custom Models
 
-You have become a master of prompting. You can guide, constrain, and persuade general-purpose AI models to perform incredible feats. You have learned to build applications that are reliable, observable, and secure. But what happens when you reach the limits of prompting? What do you do when the task requires a level of specialized knowledge, style, or a completely new skill that no amount of prompt engineering can consistently deliver?
+You have become skilled at prompting. You can guide, constrain, and persuade general-purpose models to perform impressive feats, and you know how to build applications that are reliable, observable, and secure. But what do you do when a task needs a specialized behavior, style, or format that prompting can't deliver consistently, or when a large model is simply too slow or expensive for a narrow, high-volume task?
 
-Welcome to the world of **fine-tuning**. This is the process of taking a powerful, pre-trained base model and further training it on your own custom dataset. It's how you transform a talented generalist into a world-class specialist. Fine-tuning is not about teaching the AI new facts from scratch; it's about teaching it a new *skill*. It's the difference between giving a smart person a manual to read (prompting) and sending them to medical school to become a doctor (fine-tuning).
+That is the territory of **fine-tuning**: taking a pre-trained model and training it further on your own examples. Fine-tuning is not a good way to teach a model new *facts*; it is a way to teach it a *behavior*, such as a format, a style, a classification scheme, or a way of handling a task, and often to let a much smaller, cheaper model do a job that previously needed a large one.
 
-This chapter will demystify the fine-tuning process. You will learn *when* to fine-tune, *how* to prepare your data, and the step-by-step process of creating, evaluating, and deploying your own custom AI model.
+This chapter covers *when* to fine-tune, *how* to prepare data, how to run and evaluate a fine-tuning job, and where you can do it today.
 
 ### Learning Objectives
 
 By the end of this chapter, you will be able to:
 
--   Understand the critical differences between prompt engineering, RAG, and fine-tuning.
--   Identify the specific use cases where fine-tuning provides the most value.
--   Prepare a high-quality dataset for the fine-tuning process.
--   Execute a fine-tuning job using the OpenAI API.
--   Evaluate the performance of your custom model against its base model.
--   Build and deploy a specialized IoT diagnostic assistant powered by a fine-tuned model.
+-   Choose between prompt engineering, RAG, and fine-tuning for a given problem.
+-   Identify the use cases where fine-tuning provides real value.
+-   Prepare a high-quality training dataset in the standard chat format.
+-   Understand the workflow of a fine-tuning job on a hosted platform and on open-weight models.
+-   Evaluate a fine-tuned model against a strong prompted baseline before deploying it.
+
+> **Platform status (October 2026).** The fine-tuning landscape changed significantly in 2026. OpenAI announced in May 2026 that its fine-tuning platform is no longer available to new users (existing users can still create jobs for a limited period, and existing fine-tuned models keep working until their base models are retired). The main options today are:
+>
+> -   **Open-weight models** (for example the Llama, Qwen, Gemma, Mistral, and gpt-oss families) fine-tuned with parameter-efficient methods such as **LoRA/QLoRA**, using libraries like Hugging Face TRL and PEFT or Unsloth, on your own GPUs or a rented cloud GPU, and served with an inference server such as vLLM;
+> -   **Managed tuning on cloud AI platforms** (for example Google's Vertex AI, Amazon Bedrock, and Azure AI Foundry), which support tuning for selected models;
+> -   **Specialized fine-tuning services** that train and host open-weight models for you.
+>
+> The decision framework, the data preparation, and the evaluation discipline in this chapter apply to all of them. Check your chosen platform's current documentation for supported models and exact APIs.
 
 ## When to Fine-Tune (and When NOT To)
 
-Fine-tuning is a powerful but expensive and time-consuming process. It is often a developer's last resort, not their first. Before you consider fine-tuning, you must ask yourself two questions:
-1.  Can I achieve this with better **prompt engineering**?
-2.  Is this a problem of **knowledge retrieval** that could be better solved with RAG (Retrieval-Augmented Generation)?
+Fine-tuning is powerful but costs time and money, adds a model you must maintain, and ties you to a base model that will eventually be retired. It is usually *not* the first tool to reach for. Before you consider it, ask:
 
-Let's use a clear decision framework.
+1.  Can I achieve this with better **prompt engineering**, including few-shot examples and Structured Outputs?
+2.  Is this really a **knowledge** problem that retrieval (RAG, Chapter 27) solves better?
 
 ```mermaid
 graph TD
-    A[Start: I need better AI performance] --> B{Can I improve my prompt?};
-    B -- Yes --> C[Optimize Prompt<br/>Chapter 9-12];
-    B -- No --> D{Is the problem about accessing<br/>specific, factual, or<br/>rapidly changing information?};
+    A[Start: I need better AI performance] --> B{Have I tried a strong prompt,<br/>few-shot examples, and<br/>structured outputs?};
+    B -- No --> C[Optimize the prompt<br/>Chapters 9-12];
+    B -- Yes --> D{Is the gap about specific,<br/>private, or changing<br/>information?};
     D -- Yes --> E[Use RAG<br/>Chapter 27];
-    D -- No --> F{Is the problem about teaching the AI a<br/>new skill, a nuanced style, or a<br/>complex, proprietary format?};
-    F -- Yes --> G[Consider Fine-Tuning];
+    D -- No --> F{Is it a consistent behavior, style,<br/>or format, or a need for a smaller,<br/>cheaper, faster model?};
+    F -- Yes --> G[Consider fine-tuning,<br/>and measure against the baseline];
     F -- No --> C;
 ```
 
 ### When NOT to Fine-Tune
 
--   **For Factual Recall:** Fine-tuning is an unreliable way to teach an AI new facts. If your application needs to answer questions about your company's internal documents, use a RAG system (Chapter 27) that retrieves relevant information and puts it in the prompt.
--   **For Simple Style Changes:** If you just need the AI to be more formal or write in bullet points, a strong system prompt is far more efficient and cheaper.
--   **For Rapidly Changing Information:** Fine-tuned models are static. If the information you need changes daily, a RAG system connected to a live database is the correct architecture.
+-   **For factual recall:** Fine-tuning is an unreliable way to teach a model new facts. It may learn to *sound* like it knows your product while still inventing details. If your application must answer questions about documents, use RAG, which can also cite its sources.
+-   **For simple style changes:** "Be more formal" or "answer in bullet points" is a one-line instruction, not a training job.
+-   **For rapidly changing information:** A fine-tuned model is frozen at training time.
+-   **When you don't have an evaluation:** Without a test set that measures the behavior you want, you can't tell whether fine-tuning helped, or hurt something else.
 
-### When Fine-Tuning is the Right Choice
+### When Fine-Tuning Is the Right Choice
 
-You should consider fine-tuning when you need to change the fundamental *behavior* of the model. Here are the classic use cases:
+Fine-tuning shines when you need to change *how* a model behaves, consistently, often at scale:
 
-1.  **Improving Reliability on a Specific Style or Tone:** You need the model to consistently adopt a very specific persona that is difficult to maintain with prompting alone (e.g., your company's unique brand voice).
-2.  **Generating Consistently Structured Output:** You require the AI to reliably output a complex, proprietary format (e.g., a specific XML or code structure) that is too cumbersome to specify in every prompt.
-3.  **Mastering a Niche Domain Language:** You need to teach the model the specific jargon, acronyms, and linguistic nuances of a highly specialized field (e.g., legal case analysis, medical transcription, interpreting specific industrial error codes).
-4.  **Teaching a New Skill or Reasoning Pattern:** You want the model to perform a task that requires a specific, multi-step reasoning process that is not easily described (e.g., classifying IoT alerts based on subtle, multi-variable patterns).
+1.  **Consistent format or style** that is hard to maintain with prompting alone, such as a strict house style, or a complex proprietary output structure.
+2.  **Specialized classification or extraction**, where the categories depend on subtle, organization-specific judgment that is easier to show with hundreds of examples than to describe.
+3.  **Domain language**: jargon, abbreviations, and conventions of a specialized field (industrial error logs, clinical shorthand), *as a skill of reading and writing them*, not as a store of facts.
+4.  **Cost and latency (distillation):** Use a large model, or human experts, to produce high-quality outputs, then fine-tune a small model to reproduce them. A well-tuned small model can match a much larger one on a *narrow* task at a fraction of the cost and latency.
 
-## The Fine-Tuning Workflow: A Step-by-Step Guide
+## The Fine-Tuning Workflow
 
-The fine-tuning process with the OpenAI API involves five main steps. The vast majority of the work happens in the first step: data preparation.
+Whatever the platform, the workflow has the same five steps, and most of the work is in the first one.
 
-### Step 1: Data Preparation (The 80% Rule)
+### Step 1: Data Preparation
 
-**Garbage in, garbage out.** The quality of your fine-tuned model is entirely dependent on the quality of your training data. You need to create a dataset of high-quality examples that demonstrate the exact behavior you want the model to learn.
+The quality of a fine-tuned model depends almost entirely on the quality of its training data. You need examples that demonstrate exactly the behavior you want.
 
-The data must be in the **JSON Lines (`.jsonl`)** format, where each line is a separate JSON object representing a single conversational turn.
+The near-universal format is **JSON Lines (`.jsonl`)** in the chat-messages structure: one JSON object per line, each containing a full example conversation. Hosted platforms and open-source trainers such as TRL accept this format directly or with minimal conversion.
 
-Each JSON object must contain a `"messages"` list, just like in a standard API call, with `system`, `user`, and `assistant` roles.
-
-Let's create a dataset to teach an AI how to classify IoT log messages.
+Let's create a dataset to teach a model to classify IoT log messages:
 
 ```json
-// iot_classification_dataset.jsonl
-{"messages": [{"role": "system", "content": "You are an IoT log classifier. Categories: [Connectivity, Power, Sensor_Fault, Security]"}, {"role": "user", "content": "Log: Device GW-01 failed to connect to MQTT broker after 3 retries."}, {"role": "assistant", "content": "Connectivity"}]}
-{"messages": [{"role": "system", "content": "You are an IoT log classifier. Categories: [Connectivity, Power, Sensor_Fault, Security]"}, {"role": "user", "content": "Log: Battery level on SENSOR-112 is at 4%. Immediate action required."}, {"role": "assistant", "content": "Power"}]}
-{"messages": [{"role": "system", "content": "You are an IoT log classifier. Categories: [Connectivity, Power, Sensor_Fault, Security]"}, {"role": "user", "content": "Log: Temperature reading on TEMP-08 is -999.0, indicating sensor failure."}, {"role": "assistant", "content": "Sensor_Fault"}]}
-{"messages": [{"role": "system", "content": "You are an IoT log classifier. Categories: [Connectivity, Power, Sensor_Fault, Security]"}, {"role": "user", "content": "Log: Multiple failed login attempts detected from IP 1.2.3.4 for ADMIN-PANEL."}, {"role": "assistant", "content": "Security"}]}
+{"messages": [{"role": "system", "content": "Classify the IoT log. Categories: Connectivity, Power, Sensor_Fault, Security. Reply with the category only."}, {"role": "user", "content": "GW-01 failed to connect to MQTT broker after 3 retries."}, {"role": "assistant", "content": "Connectivity"}]}
+{"messages": [{"role": "system", "content": "Classify the IoT log. Categories: Connectivity, Power, Sensor_Fault, Security. Reply with the category only."}, {"role": "user", "content": "Battery level on SENSOR-112 is at 4%. Immediate action required."}, {"role": "assistant", "content": "Power"}]}
+{"messages": [{"role": "system", "content": "Classify the IoT log. Categories: Connectivity, Power, Sensor_Fault, Security. Reply with the category only."}, {"role": "user", "content": "Temperature reading on TEMP-08 is -999.0."}, {"role": "assistant", "content": "Sensor_Fault"}]}
+{"messages": [{"role": "system", "content": "Classify the IoT log. Categories: Connectivity, Power, Sensor_Fault, Security. Reply with the category only."}, {"role": "user", "content": "Multiple failed login attempts from IP 1.2.3.4 for ADMIN-PANEL."}, {"role": "assistant", "content": "Security"}]}
 ```
 
-**Key Data Preparation Principles:**
--   **Quality over Quantity:** 50-100 high-quality, hand-curated examples are far better than 10,000 low-quality ones.
--   **Consistency:** The format and style of your `assistant` responses should be exactly what you want the final model to produce.
--   **Clarity:** The examples should be clear and unambiguous demonstrations of the desired task.
+**Key data principles:**
+-   **Quality over quantity, but enough of it:** a few hundred carefully reviewed examples are a typical starting point for a classification or formatting task; platforms set minimums (often at least 10), and results usually keep improving into the thousands, as long as quality holds.
+-   **Cover the real distribution:** include the hard and ambiguous cases, and keep the class balance close to what you see in production.
+-   **Consistency:** the assistant outputs must be exactly what you want the model to produce, including formatting. Inconsistent labels teach inconsistency.
+-   **Hold out data:** set aside a validation set and a separate test set that are never used for training.
+-   **Keep it clean and lawful:** remove personal data you don't need, and make sure you have the right to train on the data.
 
-Here's a Python script to help create your `.jsonl` file.
+A script to build and split the dataset:
 
 ```python
 import json
+import random
 
-def create_finetuning_dataset(examples: list[dict], output_file: str):
-    """Creates a .jsonl file for fine-tuning from a list of examples."""
-    with open(output_file, 'w') as f:
+SYSTEM = "Classify the IoT log. Categories: Connectivity, Power, Sensor_Fault, Security. Reply with the category only."
+
+def to_example(log: str, label: str) -> dict:
+    return {"messages": [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": log},
+        {"role": "assistant", "content": label},
+    ]}
+
+def write_jsonl(examples: list[dict], path: str) -> None:
+    with open(path, "w") as f:
         for example in examples:
-            # Each example should be a dictionary with a "messages" key
-            f.write(json.dumps(example) + '\n')
+            f.write(json.dumps(example) + "\n")
 
-# Our training examples
-training_data = [
-    {"messages": [{"role": "system", "content": "You are an IoT log classifier. Categories: [Connectivity, Power, Sensor_Fault, Security]"}, {"role": "user", "content": "Log: Device GW-01 failed to connect to MQTT broker after 3 retries."}, {"role": "assistant", "content": "Connectivity"}]},
-    # ... add more examples here ...
+labelled_logs = [
+    ("GW-01 failed to connect to MQTT broker after 3 retries.", "Connectivity"),
+    ("Battery level on SENSOR-112 is at 4%.", "Power"),
+    # ... hundreds more, reviewed by someone who knows the domain ...
 ]
 
-create_finetuning_dataset(training_data, "training_data.jsonl")
-print("Dataset created successfully.")
+random.seed(42)
+random.shuffle(labelled_logs)
+n = len(labelled_logs)
+train = labelled_logs[: int(n * 0.8)]
+validation = labelled_logs[int(n * 0.8): int(n * 0.9)]
+test = labelled_logs[int(n * 0.9):]          # used only for the final evaluation
+
+write_jsonl([to_example(*x) for x in train], "train.jsonl")
+write_jsonl([to_example(*x) for x in validation], "validation.jsonl")
 ```
 
-### Step 2: Uploading Your Dataset
+### Steps 2–4: Upload, Train, and Monitor
 
-Once your `.jsonl` file is ready, you upload it to OpenAI. The API will validate it and return a file ID.
+On a hosted platform, the next steps are always: upload the training (and validation) files, start a job on a chosen base model, and wait while it trains, from minutes to hours. For reference, this is what the steps look like with OpenAI's API, for teams that still have access; other hosted platforms follow the same shape.
 
 ```python
 import openai
+
 client = openai.OpenAI()
 
-# Upload the file
-with open("training_data.jsonl", "rb") as f:
-    training_file = client.files.create(
-        file=f,
-        purpose="fine-tune"
-    )
+# 2. Upload the data files.
+train_file = client.files.create(file=open("train.jsonl", "rb"), purpose="fine-tune")
+validation_file = client.files.create(file=open("validation.jsonl", "rb"), purpose="fine-tune")
 
-print(f"File uploaded successfully. File ID: {training_file.id}")
-# Save this File ID! You'll need it for the next step.
-```
-
-### Step 3: Creating the Fine-Tuning Job
-
-Now, you can start the fine-tuning job, pointing to your uploaded file and specifying the base model you want to customize. For this, `gpt-3.5-turbo` is a common and cost-effective choice.
-
-```python
-# Replace with the File ID from the previous step
-training_file_id = "file-xxxxxxxxxxxxxxxxxxxx" 
-
-fine_tuning_job = client.fine_tuning.jobs.create(
-    training_file=training_file_id,
-    model="gpt-3.5-turbo-0125" # Choose a fine-tunable base model
+# 3. Start the job on a fine-tunable base model (see the platform's current list).
+job = client.fine_tuning.jobs.create(
+    training_file=train_file.id,
+    validation_file=validation_file.id,
+    model="gpt-4.1-mini",
 )
+print(f"Job ID: {job.id}")
 
-print(f"Fine-tuning job created. Job ID: {fine_tuning_job.id}")
-# Save this Job ID to monitor its status.
+# 4. Monitor it.
+job = client.fine_tuning.jobs.retrieve(job.id)
+print(job.status, job.fine_tuned_model)    # when status == "succeeded", fine_tuned_model holds the new model ID
 ```
 
-Fine-tuning is an asynchronous process. It can take anywhere from a few minutes to several hours, depending on the size of your dataset and the server load.
+With open-weight models, the same steps happen on your own infrastructure: load the base model, attach LoRA adapters (small trainable matrices that leave the original weights frozen, which makes training far cheaper), train on the JSONL data with a trainer such as TRL's `SFTTrainer`, watch the training and validation loss, and save the adapter. LoRA adapters are small files, so you can keep one per task or customer and load them on demand.
 
-### Step 4: Monitoring the Job
+Watch the validation loss as you train: if training loss keeps falling while validation loss rises, the model is **overfitting** (memorizing the examples instead of learning the pattern); stop earlier, reduce the number of epochs, or add more varied data.
 
-You can check the status of your job using its ID.
+### Step 5: Use the Model
 
-```python
-job_id = "ft_job-xxxxxxxxxxxxxxxxxxxx" # The Job ID from the previous step
-
-# Retrieve the job status
-job_status = client.fine_tuning.jobs.retrieve(job_id)
-print(f"Job Status: {job_status.status}")
-
-# You can also list all your recent fine-tuning jobs
-recent_jobs = client.fine_tuning.jobs.list(limit=5)
-for job in recent_jobs.data:
-    print(f"Job {job.id}: Status={job.status}, Model={job.fine_tuned_model}")
-```
-
-When the `status` becomes `succeeded`, the job is complete, and the response will include the name of your new custom model (e.g., `ft:gpt-3.5-turbo-0125:your-org::xxxxxx`).
-
-### Step 5: Using Your Fine-Tuned Model
-
-Using your custom model is as simple as using any other model. You just specify your new model's name in the `model` parameter of your API call.
+A fine-tuned model is called like any other model, by its new ID, or, for open-weight models, through your inference server (vLLM and similar servers expose an OpenAI-compatible API, so the client code barely changes).
 
 ```python
-# Replace with your new custom model's ID
-custom_model_id = "ft:gpt-3.5-turbo-0125:your-org::xxxxxx"
-
-def classify_with_custom_model(log_entry: str):
-    response = client.chat.completions.create(
-        model=custom_model_id,
-        messages=[
-            {"role": "system", "content": "You are an IoT log classifier. Categories: [Connectivity, Power, Sensor_Fault, Security]"},
-            {"role": "user", "content": f"Log: {log_entry}"}
-        ],
-        temperature=0.0
+def classify_log(client, model: str, log: str) -> str:
+    response = client.chat.completions.create(       # chat completions: widely supported for tuned models
+        model=model,
+        messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": log}],
     )
-    return response.choices[0].message.content
-
-# Test the fine-tuned model
-new_log = "Device PUMP-7 has a reported voltage of 2.1V, below the 2.5V threshold."
-classification = classify_with_custom_model(new_log)
-print(f"Log: '{new_log}'")
-print(f"Classification: {classification}") # Expected: "Power"
+    return response.choices[0].message.content.strip()
 ```
 
-Your fine-tuned model should now be significantly more accurate and reliable at this specific classification task than the general-purpose base model.
+Use the same system prompt at inference time as in training: the model learned to respond to *that* input.
 
 ## Evaluating Your Custom Model
 
-How do you know if fine-tuning was successful? You need to evaluate its performance.
-
--   **Quantitative Evaluation:** For tasks like classification, you should create a separate **validation dataset** (which was *not* used for training). Run both the base model and your fine-tuned model on this dataset and compare their accuracy, precision, and recall.
--   **Qualitative Evaluation:** For tasks involving style or complex generation, the "AI Judge" pattern (from Chapter 24) is invaluable. Have a powerful model like GPT-4o compare the outputs of your custom model and the base model against a "golden" response, and score them on clarity, tone, and correctness.
-
-## Practical Project: A Specialized IoT Device Assistant
-
-Let's build an assistant that has deep, specialized knowledge of a fictional, proprietary set of IoT devices. This is a perfect use case for fine-tuning because the information is not public and cannot be learned from a general web crawl.
-
-Our assistant will understand the error codes for the "HydroCore 5000" water monitoring system.
-
-**Goal:** Teach the model to map cryptic error codes to human-readable explanations and recommended actions.
-
-**Step 1: Create the Training Dataset**
+A fine-tuned model must earn its place. Compare it, on your held-out **test set**, against the strongest *non-fine-tuned* alternative, usually a capable model with a good prompt and few-shot examples. If the prompted baseline is just as accurate, you don't need the extra model to maintain.
 
 ```python
-# create_hydrocore_dataset.py
-import json
+from collections import Counter
 
-# Proprietary knowledge about our fictional device
-hydrocore_error_codes = {
-    "E-01": {"problem": "pH sensor calibration drift", "action": "Initiate remote recalibration cycle (command: RECALIB_PH). If fails, schedule technician visit."},
-    "E-02": {"problem": "Turbidity sensor occlusion", "action": "Trigger automated cleaning cycle (command: CLEAN_TURB). Check physical sensor for debris if error persists."},
-    "E-05": {"problem": "Communication module failure", "action": "Attempt remote reboot (command: REBOOT_COMM). If unresponsive, device requires physical replacement."},
-    "W-10": {"problem": "Low battery warning (below 15%)", "action": "Schedule battery replacement within the next 7 days."},
+def evaluate(predict, test_set: list[tuple[str, str]]) -> dict:
+    """Accuracy plus a confusion count for a classifier. `predict` maps a log to a label."""
+    confusion = Counter()
+    correct = 0
+    for log, expected in test_set:
+        predicted = predict(log)
+        correct += predicted == expected
+        confusion[(expected, predicted)] += 1
+    return {"accuracy": correct / len(test_set), "confusion": dict(confusion)}
+
+FEW_SHOT = SYSTEM + "\nExamples:\n- 'Uplink lost on GW-4' -> Connectivity\n- 'Cell voltage 2.1V' -> Power"
+
+def baseline_predict(log: str) -> str:
+    return client.responses.create(model="gpt-6-luna", instructions=FEW_SHOT, input=log).output_text.strip()
+
+# baseline = evaluate(baseline_predict, test)
+# tuned = evaluate(lambda log: classify_log(client, "ft:your-model-id", log), test)
+# Ship the tuned model only if it is clearly better, or equally good and cheaper/faster at your volume.
+```
+
+Look beyond the headline accuracy: the confusion counts show *which* mistakes each model makes (mistaking Security events for Connectivity is worse than the reverse), and you should also compare latency and cost per request at your expected volume. For generative tasks (style, formatting), use the LLM-judge approach from Chapter 24, calibrated against human ratings.
+
+## A Cautionary Example: Proprietary Error Codes
+
+Here is a request that sounds like a perfect fine-tuning project, and isn't: "Our *AquaSense 300* water monitors emit proprietary error codes (`E-01`, `E-02`, `W-10`, …). Fine-tune a model so it knows what every code means."
+
+It's tempting: the information isn't public, and a model can't know it. But this is **factual recall**, exactly what fine-tuning does poorly:
+
+-   With one example per code, the model may memorize the training phrasing yet still confuse similar codes, or confidently invent a meaning for a code it never saw.
+-   When engineering adds `E-12` next month, you would have to retrain.
+-   You can't point the user to the source of an answer.
+
+The robust design is much simpler. For a small, fixed table, look the code up in code and let the model explain the result; for a large manual, use RAG (Chapter 27):
+
+```python
+AQUASENSE_CODES = {
+    "E-01": {"problem": "pH sensor calibration drift", "action": "Run remote recalibration (RECALIB_PH). If it fails, schedule a technician."},
+    "E-02": {"problem": "Turbidity sensor occlusion", "action": "Trigger the cleaning cycle (CLEAN_TURB). Inspect for debris if it persists."},
+    "W-10": {"problem": "Low battery (below 15%)", "action": "Replace the battery within 7 days."},
 }
 
-training_examples = []
-system_prompt = "You are an expert support assistant for the HydroCore 5000 water monitoring system. You translate error codes into clear explanations and actions."
+def explain_error(code: str, user_question: str) -> str:
+    entry = AQUASENSE_CODES.get(code.upper())
+    if entry is None:
+        return f"Error code {code} is not in the AquaSense 300 reference. Please check the code or contact support."
+    return client.responses.create(
+        model="gpt-6-luna",
+        instructions="You are an AquaSense 300 support assistant. Explain using only the reference entry provided.",
+        input=f"Reference for {code}: {json.dumps(entry)}\n\nUser question: {user_question}",
+    ).output_text
 
-for code, info in hydrocore_error_codes.items():
-    user_prompt = f"Device HC5000-A-1138 is reporting error code {code}. What does this mean and what should I do?"
-    assistant_response = f"Error Code {code} indicates a '{info['problem']}'. Recommended Action: {info['action']}"
-    
-    training_examples.append({
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-            {"role": "assistant", "content": assistant_response}
-        ]
-    })
-
-# Create the .jsonl file
-with open("hydrocore_dataset.jsonl", 'w') as f:
-    for example in training_examples:
-        f.write(json.dumps(example) + '\n')
-
-print("HydroCore 5000 training dataset created.")
+print(explain_error("E-02", "My unit is showing E-02. What's wrong?"))
 ```
 
-**Step 2 & 3: Upload and Fine-Tune**
-
-You would then run the `client.files.create` and `client.fine_tuning.jobs.create` commands with `hydrocore_dataset.jsonl` to create your custom model.
-
-**Step 4: Use the Specialized Assistant**
-
-Let's assume the fine-tuning job completes and gives us the model ID `ft:gpt-3.5-turbo...:hydrocore-v1`.
-
-```python
-# specialized_assistant.py
-class SpecializedIoTAgent:
-    def __init__(self, model_id: str):
-        self.client = openai.OpenAI()
-        self.model = model_id
-        self.system_prompt = "You are an expert support assistant for the HydroCore 5000 water monitoring system."
-
-    def diagnose_error(self, error_code_message: str):
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": error_code_message}
-            ]
-        )
-        return response.choices[0].message.content
-
-# --- Compare Before and After Fine-Tuning ---
-base_model_agent = SpecializedIoTAgent(model_id="gpt-3.5-turbo")
-fine_tuned_agent = SpecializedIoTAgent(model_id="ft:gpt-3.5-turbo...:hydrocore-v1") # Use your actual model ID
-
-user_query = "My HydroCore unit is showing error E-02. What's wrong?"
-
-# The base model will guess or state it doesn't have specific information.
-print("--- Response from Base Model (Before Fine-Tuning) ---")
-# print(base_model_agent.diagnose_error(user_query)) 
-# (This would be a real API call. A likely response would be generic.)
-print("Error E-02 is a generic error code. I would need the device manual to know for sure, but it could indicate a sensor or communication issue...")
-
-# The fine-tuned model knows *exactly* what E-02 means.
-print("\n--- Response from Fine-Tuned Model (After Fine-Tuning) ---")
-# print(fine_tuned_agent.diagnose_error(user_query))
-print("Error Code E-02 indicates a 'Turbidity sensor occlusion'. Recommended Action: Trigger automated cleaning cycle (command: CLEAN_TURB). Check physical sensor for debris if error persists.")
-```
-
-The difference is stark. The fine-tuned model has become a true specialist, providing precise, actionable advice based on proprietary knowledge it learned during training.
+Unknown codes get an honest answer instead of an invented one, updates are a one-line change, and every explanation is grounded in the reference. Fine-tuning *could* still play a role later, for example teaching a small model your support team's tone and answer structure, but the facts stay in the lookup table or the retrieval index.
 
 ## Conclusion
 
-Fine-tuning is a powerful tool in the advanced AI developer's arsenal. It allows you to go beyond prompting to fundamentally specialize a model's behavior. However, it should be used judiciously.
+Fine-tuning is a powerful tool, best used deliberately:
 
-Remember the key takeaways:
--   **Prompting First:** Always try to solve your problem with advanced prompting techniques before considering fine-tuning.
--   **RAG for Facts:** Use Retrieval-Augmented Generation when your application needs to access specific, factual, or rapidly changing information.
--   **Fine-Tune for Skills:** Use fine-tuning to teach the model a new skill, a consistent style, or a deep understanding of a niche language.
--   **Data is Everything:** The success of your fine-tuned model depends entirely on the quality of your training data.
-
-You are now equipped to not only use AI models but to customize them, creating specialized intelligences tailored perfectly to your unique applications.
+-   **Prompting first:** strong prompts, few-shot examples, and structured outputs solve most problems.
+-   **RAG for facts:** use retrieval when the model needs specific, private, or changing information.
+-   **Fine-tune for behavior and efficiency:** consistent formats and styles, specialized classification, domain language, and distilling a large model's skill into a small, cheap one.
+-   **Data and evaluation are everything:** curate examples carefully, hold out a test set, and ship only what beats the prompted baseline.
+-   **Plan for platform change:** prefer approaches (like open-weight LoRA adapters plus a reproducible training script) that you can re-run when a base model or platform goes away.
 
 # References and Further Reading
 
-- [Fine-Tune AI Models in 2024 (Step by Step) (Dojo AI, 2024)](https://www.usedojo.ai/blog/fine-tuning-guide)
-- [How To: Fine-tune or Train an AI model for your WordPress ChatBot (Meow Apps, 2024)](https://meowapps.com/wordpress-chatbot-finetuned-model-ai/)
-- [Fine-Tuning for Dummies: A Beginner’s Guide to Custom AI Models (Medium, 2024)](https://michielh.medium.com/fine-tuning-ai-for-dummies-a-simplified-guide-to-mastering-model-optimization-ae075ee06649)
-- [Fine-Tuning AI Models: A Guide (Medium, 2023)](https://medium.com/@prabhuss73/fine-tuning-ai-models-a-guide-c515bcd4b580)
+- [LoRA: Low-Rank Adaptation of Large Language Models (Hu et al., 2021)](https://arxiv.org/abs/2106.09685)
+- [QLoRA: Efficient Finetuning of Quantized LLMs (Dettmers et al., 2023)](https://arxiv.org/abs/2305.14314)
+- [Hugging Face TRL documentation (SFTTrainer)](https://huggingface.co/docs/trl/)
+- [Hugging Face PEFT documentation](https://huggingface.co/docs/peft/)
+- [vLLM documentation (serving open-weight models and LoRA adapters)](https://docs.vllm.ai/)
+- [Fine-tuning now available for GPT-4o (OpenAI; see the 2026 platform update on this page)](https://openai.com/index/gpt-4o-fine-tuning/)

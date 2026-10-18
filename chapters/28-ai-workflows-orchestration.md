@@ -1,41 +1,37 @@
 # Chapter 28: AI Workflows and Orchestration
 
-In the preceding chapters, we have built increasingly sophisticated AI systems. We've created agents that can use tools, chains that perform multi-step reasoning, and applications that serve models through robust APIs. However, most of our designs have followed a linear path: a request comes in, a sequence of actions occurs, and a response goes out. But real-world business processes are rarely so simple. They involve branching logic, parallel tasks, human approvals, and error recovery—in other words, they are **workflows**.
+In the preceding chapters, we built agents that use tools, chains that reason in steps, and applications that serve models through robust APIs. Most of these designs followed a straight path: a request comes in, a sequence of steps runs, and a response goes out. Real business processes are rarely so simple. They involve branching logic, parallel tasks, human approvals, waiting, and recovery from failures; in other words, they are **workflows**.
 
-This chapter is about graduating from simple AI chains to building robust, automated AI workflows. We will learn how to use **orchestration engines** to manage complex, multi-step processes that involve both AI and traditional software components. We will move beyond single-shot reasoning and design systems that can execute complex business logic, handle failures gracefully, and even incorporate a human in the loop for critical decisions.
+This chapter is about building reliable AI workflows. We will build a small orchestrator from scratch to understand the mechanics (dependencies, data passing, retries, failure handling, and human-in-the-loop steps) and then look at the production engines that provide these features at scale, including **durable execution** for processes that must survive crashes and wait for humans.
 
 ### Learning Objectives
 
 By the end of this chapter, you will be able to:
 
--   Understand the difference between a simple AI chain and a complex workflow.
--   Design AI workflows using Directed Acyclic Graphs (DAGs).
--   Build a simple, from-scratch workflow orchestration engine in Python.
--   Implement error recovery, retries, and conditional logic within your workflows.
--   Integrate **Human-in-the-Loop (HITL)** patterns for critical decision points.
--   Architect a complete, automated IoT incident response workflow.
--   Know when to use a simple script versus a powerful workflow engine like Prefect or Airflow.
+-   Explain the difference between a simple AI chain and a workflow.
+-   Model workflows as Directed Acyclic Graphs (DAGs).
+-   Build a small workflow orchestrator in Python, with retries and failure propagation.
+-   Integrate **Human-in-the-Loop (HITL)** approval for critical decisions.
+-   Build an automated IoT incident-response workflow.
+-   Choose between a script, a DAG scheduler, and a durable-execution engine.
 
-## From Simple Chains to Complex Workflows
+## From Simple Chains to Workflows
 
-A simple AI chain is like a straight road. It's efficient for getting from point A to point B, but it offers no detours or alternatives.
+A simple AI chain is like a straight road:
 
 ```python
 def simple_ai_chain(alert_data: str) -> str:
-    # 1. Summarize the alert
-    summary = ai_summarize(alert_data)
-    # 2. Diagnose the root cause
-    diagnosis = ai_diagnose(summary)
-    # 3. Generate a report
-    report = generate_report(diagnosis)
-    return report
+    summary = ai_summarize(alert_data)        # 1. summarize the alert
+    diagnosis = ai_diagnose(summary)          # 2. diagnose the root cause
+    return generate_report(diagnosis)         # 3. generate a report
 ```
-This is fine until something goes wrong. What if the diagnosis is uncertain? What if the alert requires immediate, parallel actions? What if a human needs to approve the final report? A linear chain breaks down under this complexity.
 
-A workflow, by contrast, is like a city map with multiple routes, intersections, and traffic lights. It is a structured graph of tasks where the path of execution can change dynamically based on the outcome of previous steps. The standard way to represent a workflow is with a **Directed Acyclic Graph (DAG)**.
+That's fine until something goes wrong. What if the diagnosis is uncertain? What if a critical alert needs several actions at once? What if a human must approve before anything changes? What if the API is down for ten minutes?
 
--   **Directed:** Each task flows into the next in a specific direction.
--   **Acyclic:** The workflow doesn't loop back on itself, ensuring it eventually completes.
+A workflow is a graph of tasks where the path can branch, steps can run in parallel, and failures are handled deliberately. The standard representation is a **Directed Acyclic Graph (DAG)**:
+
+-   **Directed:** each edge points from a task to a task that depends on it.
+-   **Acyclic:** there are no loops, so execution always finishes.
 
 ```mermaid
 graph TD
@@ -53,318 +49,255 @@ graph TD
     F --> J;
 ```
 
-This DAG represents a much more realistic and robust process than a simple linear chain. Building a system to execute this graph is the job of a **workflow orchestrator**.
+(Agents, by contrast, are loops: the model decides, acts, observes, and decides again. Frameworks for agentic workflows, such as LangGraph, therefore support cycles with explicit stop conditions. A common design is a DAG for the overall process, with an agent loop inside one bounded step.)
 
 ## Building a Simple Workflow Orchestrator
 
-To truly understand how workflows operate, we will build a simplified orchestrator from scratch. This will reveal the core mechanics of task dependency, data passing, and state management.
+To understand how orchestrators work, we'll build a small one. The design choices are the ones every real engine makes: how tasks declare dependencies, how data flows between them, what happens on failure, and how the execution order is computed.
 
 ### Step 1: Defining a Task
 
-First, we need a way to define a single unit of work, or a "task." A task needs a function to execute and a list of other tasks it depends on.
+A task is a function plus the IDs of the tasks it depends on. Every task function has the same signature: it receives `inputs` (a dictionary of its dependencies' results, keyed by task ID) and `params` (the workflow's input parameters). A uniform signature keeps tasks decoupled from each other's names.
 
 ```python
-from typing import Callable, List, Dict, Any, Set
+import json
+import time
+from dataclasses import dataclass, field
+from graphlib import TopologicalSorter, CycleError
+from typing import Any, Callable
 
+TaskFn = Callable[[dict[str, Any], dict[str, Any]], Any]
+
+@dataclass
 class Task:
-    def __init__(self, task_id: str, function: Callable, dependencies: List[str] = None):
-        self.id = task_id
-        self.function = function
-        self.dependencies = set(dependencies or [])
+    id: str
+    function: TaskFn
+    dependencies: list[str] = field(default_factory=list)
+    max_retries: int = 0
+    retry_delay_seconds: float = 1.0
 
-# Let's define some simple functions to be our tasks
-def ingest_data() -> dict:
-    print("TASK: Ingesting data...")
-    return {"raw_data": "Device T-101 reports temperature at 95°C."}
+# Some simple task functions
+def ingest_data(inputs: dict, params: dict) -> dict:
+    print("TASK: ingest")
+    return {"raw_data": params["reading"]}
 
-def analyze_data(ingested_data: dict) -> dict:
-    print("TASK: Analyzing data...")
-    if "95°C" in ingested_data.get("raw_data", ""):
-        return {"severity": "Critical", "details": "Temperature exceeds 90°C limit."}
+def analyze_data(inputs: dict, params: dict) -> dict:
+    print("TASK: analyze")
+    temperature = inputs["ingest"]["raw_data"]["temperature_c"]
+    if temperature > 90:
+        return {"severity": "Critical", "details": f"{temperature}°C exceeds the 90°C limit."}
     return {"severity": "Normal", "details": "All systems nominal."}
 
-def send_alert(analysis_result: dict):
-    print(f"TASK: Sending alert... SEVERITY: {analysis_result.get('severity')}")
-    print("  -> Alert sent to on-call engineer.")
+def send_alert(inputs: dict, params: dict) -> dict:
+    severity = inputs["analyze"]["severity"]
+    print(f"TASK: alert (severity {severity})")
+    return {"alert_sent": severity == "Critical"}
 
-def log_to_database(analysis_result: dict):
-    print(f"TASK: Logging to database... STATUS: {analysis_result.get('severity')}")
-    print("  -> Log entry written.")
+def log_to_database(inputs: dict, params: dict) -> dict:
+    print(f"TASK: log ({inputs['analyze']['severity']})")
+    return {"logged": True}
 ```
 
 ### Step 2: The Orchestrator
 
-The orchestrator's job is to take a set of tasks, understand their dependencies, and execute them in the correct order. The key to this is a **topological sort** of the DAG, which gives us a linear ordering of tasks where every task comes after all of its dependencies.
+The orchestrator computes an execution order in which every task comes after its dependencies (a **topological sort**). Python's standard library includes one, `graphlib.TopologicalSorter`, which also detects cycles. Then it runs each task with retries, and skips the tasks downstream of a failure instead of feeding them bad data.
 
 ```python
 class WorkflowOrchestrator:
     def __init__(self):
-        self.tasks: Dict[str, Task] = {}
-        self.task_graph: Dict[str, Set[str]] = {}
+        self.tasks: dict[str, Task] = {}
 
-    def add_task(self, task: Task):
-        """Adds a task to the workflow."""
+    def add_task(self, task: Task) -> None:
         self.tasks[task.id] = task
-        self.task_graph[task.id] = task.dependencies
 
-    def _topological_sort(self) -> List[str]:
-        """Sorts tasks based on their dependencies."""
-        sorted_order = []
-        visited = set()
-        recursion_stack = set()
-        
-        def visit(task_id):
-            visited.add(task_id)
-            recursion_stack.add(task_id)
-            
-            for dep_id in self.task_graph.get(task_id, set()):
-                if dep_id not in visited:
-                    visit(dep_id)
-                elif dep_id in recursion_stack:
-                    raise Exception("Circular dependency detected in workflow!")
-            
-            sorted_order.insert(0, task_id)
-            recursion_stack.remove(task_id)
+    def _execution_order(self) -> list[str]:
+        for task in self.tasks.values():
+            missing = [d for d in task.dependencies if d not in self.tasks]
+            if missing:
+                raise ValueError(f"Task '{task.id}' depends on unknown task(s): {missing}")
+        graph = {task_id: set(task.dependencies) for task_id, task in self.tasks.items()}
+        return list(TopologicalSorter(graph).static_order())   # raises CycleError on loops
 
-        for task_id in self.tasks:
-            if task_id not in visited:
-                visit(task_id)
-        
-        return sorted_order[::-1] # Reverse to get execution order
-
-    def run(self, initial_context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Executes the workflow in the correct order."""
-        try:
-            execution_order = self._topological_sort()
-        except Exception as e:
-            print(f"Workflow failed to build: {e}")
-            return {"error": str(e)}
-
-        print(f"Execution Order: {' -> '.join(execution_order)}")
-        
-        results = initial_context or {}
-        
-        for task_id in execution_order:
-            task = self.tasks[task_id]
-            
-            # Gather inputs for the current task from the results of its dependencies
-            task_inputs = {dep_id: results.get(dep_id) for dep_id in task.dependencies}
-            
-            print(f"\n--- Running Task: {task.id} ---")
-            
+    def _run_with_retries(self, task: Task, inputs: dict, params: dict) -> Any:
+        for attempt in range(1, task.max_retries + 2):
             try:
-                # The output of the task function is stored with the task's ID as the key.
-                # We pass the results of all its dependencies as a single dictionary argument.
-                results[task.id] = task.function(**task_inputs)
+                return task.function(inputs, params)
             except Exception as e:
-                print(f"!!! Task {task.id} failed: {e}")
-                results[task.id] = {"error": str(e)}
-                # In a real system, you might stop here or trigger a failure workflow.
+                if attempt > task.max_retries:
+                    raise
+                print(f"  ! {task.id} failed (attempt {attempt}): {e}. Retrying in {task.retry_delay_seconds}s")
+                time.sleep(task.retry_delay_seconds * attempt)       # simple linear backoff
 
-        return results
+    def run(self, params: dict | None = None) -> dict[str, dict]:
+        params = params or {}
+        try:
+            order = self._execution_order()
+        except (ValueError, CycleError) as e:
+            return {"_workflow": {"status": "invalid", "error": str(e)}}
+        print("Execution order:", " -> ".join(order))
+
+        state: dict[str, dict] = {}
+        for task_id in order:
+            task = self.tasks[task_id]
+            failed_deps = [d for d in task.dependencies if state[d]["status"] != "success"]
+            if failed_deps:
+                state[task_id] = {"status": "skipped", "reason": f"upstream failure: {failed_deps}"}
+                continue
+            inputs = {d: state[d]["result"] for d in task.dependencies}
+            try:
+                state[task_id] = {"status": "success", "result": self._run_with_retries(task, inputs, params)}
+            except Exception as e:
+                state[task_id] = {"status": "failed", "error": f"{type(e).__name__}: {e}"}
+        return state
 ```
 
-Let's wire up our tasks and run the workflow.
+Let's wire up the tasks and run the workflow:
 
 ```python
-# Create the orchestrator
 orchestrator = WorkflowOrchestrator()
+orchestrator.add_task(Task("ingest", ingest_data))
+orchestrator.add_task(Task("analyze", analyze_data, dependencies=["ingest"]))
+orchestrator.add_task(Task("alert", send_alert, dependencies=["analyze"]))
+orchestrator.add_task(Task("log", log_to_database, dependencies=["analyze"]))
 
-# Add our tasks and define their dependencies
-orchestrator.add_task(Task(task_id="ingest", function=ingest_data))
-orchestrator.add_task(Task(task_id="analyze", function=analyze_data, dependencies=["ingest"]))
-orchestrator.add_task(Task(task_id="alert", function=send_alert, dependencies=["analyze"]))
-orchestrator.add_task(Task(task_id="log", function=log_to_database, dependencies=["analyze"]))
-
-# Run the workflow
-final_results = orchestrator.run()
-print("\n--- Workflow Complete ---")
-print("Final Results Context:", json.dumps(final_results, indent=2))
+results = orchestrator.run({"reading": {"device_id": "T-101", "temperature_c": 95}})
+print(json.dumps(results, indent=2))
 ```
 
-This simple orchestrator correctly executes `ingest`, then `analyze`, and finally `alert` and `log` (which could be run in parallel). It also passes the output of one task as the input to the next, allowing data to flow through the system.
+The orchestrator runs `ingest`, then `analyze`, then `alert` and `log`. Those last two don't depend on each other and could run in parallel; `TopologicalSorter` also has an incremental API (`get_ready()` / `done()`) that tells you which tasks are ready at each moment, which is how a parallel executor would be built.
 
 ## Advanced Workflow Patterns
 
-Our simple orchestrator is a great start, but production workflows need more sophistication.
+### Pattern 1: Retries and Failure Propagation
 
-### Pattern 1: Retries and Error Handling
-
-What happens if a task fails due to a temporary issue, like a network timeout when calling an API? We need to build in retry logic.
-
-We can extend our `Task` definition to include retry parameters and modify our orchestrator to handle them.
-
-```python
-# Modified Task class with retry logic
-class Task:
-    def __init__(self, task_id: str, function: Callable, dependencies: List[str] = None, max_retries: int = 0, retry_delay_seconds: int = 1):
-        self.id = task_id
-        self.function = function
-        self.dependencies = set(dependencies or [])
-        self.max_retries = max_retries
-        self.retry_delay_seconds = retry_delay_seconds
-
-# Modified orchestrator's run loop
-# ... inside the `for task_id in execution_order:` loop ...
-# try:
-#     results[task.id] = task.function(**task_inputs)
-# except Exception as e:
-#     print(f"!!! Task {task.id} failed on attempt 1: {e}")
-#     for attempt in range(task.max_retries):
-#         print(f"    -> Retrying in {task.retry_delay_seconds}s... (Attempt {attempt + 2}/{task.max_retries + 1})")
-#         time.sleep(task.retry_delay_seconds)
-#         try:
-#             results[task.id] = task.function(**task_inputs)
-#             print(f"    -> Task {task.id} succeeded on retry.")
-#             break # Exit retry loop on success
-#         except Exception as e_retry:
-#             print(f"!!! Task {task.id} failed on attempt {attempt + 2}: {e_retry}")
-#     else: # This 'else' belongs to the for-loop, runs if the loop completes without a 'break'
-#         results[task.id] = {"error": f"Task failed after {task.max_retries} retries."}
-#         break # Stop the entire workflow if a task fails all its retries
-```
-
-This adds resilience, allowing the workflow to recover from transient errors.
+The orchestrator already retries transient failures (`max_retries` per task) and marks downstream tasks as `skipped` when a dependency fails, which is safer than calling them with an error object they don't expect. Two production rules go with retries: only retry **idempotent** tasks (sending the same alert three times is a bug, so give side-effecting tasks a unique key the receiving system can deduplicate on), and distinguish transient errors (retry) from permanent ones (fail fast), as in Chapter 8.
 
 ### Pattern 2: Conditional Logic and Branching
 
-Workflows often need to make decisions. The output of one task should determine which subsequent task gets executed. We can achieve this by making task functions return a special value that the orchestrator uses to decide the next step.
+Branching is usually expressed by having a task return a decision that downstream tasks check, as `execute_automated_fix` and `escalate_to_engineer` do in the project below. Production engines offer explicit branch operators, but the principle is the same: the decision is data, and it is recorded in the workflow state, so you can see later *why* a path was taken.
 
 ### Pattern 3: Human-in-the-Loop (HITL)
 
-This is one of the most critical patterns for building safe and responsible AI systems. Some decisions are too important to be fully automated. An HITL task pauses the workflow and waits for a human to provide input or approval before proceeding.
-
-Let's implement a simple HITL task that waits for a user to type in the console.
+This is one of the most important patterns for responsible AI systems. Some decisions are too consequential to automate. An HITL step pauses the workflow until a person approves or rejects.
 
 ```python
-def human_approval_task(context: dict) -> dict:
-    """A task that pauses the workflow and waits for human input."""
-    
-    print("\n--- HUMAN INTERVENTION REQUIRED ---")
-    print("An AI has made a diagnosis and recommends an action.")
-    print(f"Diagnosis: {context.get('diagnosis', {}).get('summary', 'N/A')}")
-    print(f"Recommended Action: {context.get('diagnosis', {}).get('action', 'N/A')}")
-    
-    while True:
-        approval = input("Do you approve this action? (yes/no): ").lower()
-        if approval in ["yes", "no"]:
-            break
-        print("Invalid input. Please enter 'yes' or 'no'.")
-            
-    if approval == "yes":
-        print("Action approved by human operator.")
-        return {"approved": True, "reason": "Operator consent."}
-    else:
-        print("Action rejected by human operator. Escalating.")
-        return {"approved": False, "reason": "Operator rejected action."}
+def human_approval_task(inputs: dict, params: dict) -> dict:
+    """Pauses for a human decision. Console version for demonstration."""
+    diagnosis = inputs["diagnosis"]
+    print("\n--- HUMAN APPROVAL REQUIRED ---")
+    print(f"Diagnosis: {diagnosis['summary']}")
+    print(f"Proposed action: {diagnosis['action']}")
+    while (answer := input("Approve this action? (yes/no): ").strip().lower()) not in ("yes", "no"):
+        print("Please answer 'yes' or 'no'.")
+    return {"approved": answer == "yes", "approver": "console-operator"}
 ```
-In a real application, instead of `input()`, this task would send a notification to a web dashboard, a Slack channel, or a mobile app, and wait for an API call back with the human's decision.
 
-## Practical Project: An Automated IoT Incident Response Workflow
+In a real application, the approval request goes to a dashboard, Slack, or a mobile app, and the answer may arrive minutes or days later. A Python process blocked on `input()` can't wait days, and if it crashes or is redeployed while waiting, the workflow is lost. Solving exactly that problem is what durable-execution engines are for (below).
 
-Let's build a complete workflow for handling a critical IoT alert, incorporating our advanced patterns.
+## Practical Project: An Automated IoT Incident-Response Workflow
+
+Let's build a workflow for a critical IoT alert, with enrichment, AI diagnosis, human approval, and conditional follow-up.
 
 ```python
-# --- Define all our task functions ---
-def ingest_alert(alert_payload: dict) -> dict:
-    print("TASK: Ingesting critical alert...")
-    # In a real system, this would validate and parse the alert
-    return {"alert": alert_payload}
+import openai
+from pydantic import BaseModel
 
-def enrich_with_device_data(ingest: dict) -> dict:
-    print("TASK: Enriching alert with device history from database...")
-    # Simulate fetching data from a database
-    device_id = ingest['alert']['device_id']
-    history = {"maintenance_history": "Last serviced 3 months ago.", "firmware": "v2.1.0"}
-    return {"enriched_alert": {**ingest['alert'], **history}}
+client = openai.OpenAI()
 
-def ai_initial_diagnosis(enrich_with_device_data: dict) -> dict:
-    print("TASK: Performing initial AI diagnosis...")
-    # A real call to an AI model
-    return {"summary": "Likely sensor fault due to outdated firmware.", "action": "Attempt remote firmware update to v2.2.1."}
+class Diagnosis(BaseModel):
+    summary: str
+    action: str
+    confidence: str      # "low" | "medium" | "high"
 
-# We already defined human_approval_task
+def ingest_alert(inputs: dict, params: dict) -> dict:
+    print("TASK: ingest alert")
+    return {"alert": params["alert"]}
 
-def execute_automated_fix(human_approval_task: dict) -> dict:
-    if human_approval_task.get("approved"):
-        print("TASK: Executing automated fix (firmware update)...")
-        time.sleep(2) # Simulate action
-        return {"status": "success", "message": "Firmware updated to v2.2.1."}
-    return {"status": "skipped", "message": "Action was not approved."}
-    
-def escalate_to_engineer(human_approval_task: dict) -> dict:
-    if not human_approval_task.get("approved"):
-        print("TASK: Escalating to on-call engineer...")
-        # Simulate sending a page/email
-        return {"status": "escalated", "ticket_id": "INC-12345"}
-    return {"status": "skipped", "message": "Escalation not required."}
+def enrich_with_device_data(inputs: dict, params: dict) -> dict:
+    print("TASK: enrich with device history")
+    alert = inputs["ingest"]["alert"]
+    history = {"maintenance_history": "Last serviced 3 months ago.", "firmware": "v2.1.0"}   # from your database
+    return {**alert, **history}
 
-def final_report(execute_automated_fix: dict, escalate_to_engineer: dict) -> dict:
-    print("TASK: Generating final incident report...")
-    if execute_automated_fix.get("status") == "success":
-        summary = f"Incident resolved automatically. {execute_automated_fix.get('message')}"
-    elif escalate_to_engineer.get("status") == "escalated":
-        summary = f"Incident escalated. Ticket: {escalate_to_engineer.get('ticket_id')}"
+def ai_initial_diagnosis(inputs: dict, params: dict) -> dict:
+    print("TASK: AI diagnosis")
+    response = client.responses.parse(
+        model="gpt-6-luna",
+        instructions="You are an IoT reliability engineer. Propose the single safest next action.",
+        input=f"<alert>{json.dumps(inputs['enrich'])}</alert>",
+        text_format=Diagnosis,
+    )
+    return response.output_parsed.model_dump()
+
+def execute_automated_fix(inputs: dict, params: dict) -> dict:
+    if not inputs["approval"]["approved"]:
+        return {"status": "skipped", "message": "Action was not approved."}
+    print("TASK: executing approved action")
+    return {"status": "success", "message": f"Executed: {inputs['diagnosis']['action']}"}
+
+def escalate_to_engineer(inputs: dict, params: dict) -> dict:
+    if inputs["approval"]["approved"]:
+        return {"status": "skipped", "message": "Escalation not required."}
+    print("TASK: escalating to on-call engineer")
+    return {"status": "escalated", "ticket_id": "INC-12345"}
+
+def final_report(inputs: dict, params: dict) -> dict:
+    fix, escalation = inputs["automated_fix"], inputs["escalate"]
+    if fix["status"] == "success":
+        summary = f"Resolved automatically after approval. {fix['message']}"
+    elif escalation["status"] == "escalated":
+        summary = f"Escalated to engineering. Ticket: {escalation['ticket_id']}"
     else:
-        summary = "Incident resolution path unclear."
+        summary = "Incident resolution path unclear; needs review."
     return {"final_summary": summary}
 
-# --- Build and Run the Workflow ---
-incident_orchestrator = WorkflowOrchestrator()
+incident = WorkflowOrchestrator()
+incident.add_task(Task("ingest", ingest_alert))
+incident.add_task(Task("enrich", enrich_with_device_data, ["ingest"]))
+incident.add_task(Task("diagnosis", ai_initial_diagnosis, ["enrich"], max_retries=2))
+incident.add_task(Task("approval", human_approval_task, ["diagnosis"]))
+incident.add_task(Task("automated_fix", execute_automated_fix, ["approval", "diagnosis"]))
+incident.add_task(Task("escalate", escalate_to_engineer, ["approval"]))
+incident.add_task(Task("report", final_report, ["automated_fix", "escalate"]))
 
-# Add all tasks with their dependencies
-incident_orchestrator.add_task(Task(task_id="ingest", function=ingest_alert))
-incident_orchestrator.add_task(Task(task_id="enrich", function=enrich_with_device_data, dependencies=["ingest"]))
-incident_orchestrator.add_task(Task(task_id="diagnosis", function=ai_initial_diagnosis, dependencies=["enrich"]))
-incident_orchestrator.add_task(Task(task_id="approval", function=human_approval_task, dependencies=["diagnosis"]))
-incident_orchestrator.add_task(Task(task_id="automated_fix", function=execute_automated_fix, dependencies=["approval"]))
-incident_orchestrator.add_task(Task(task_id="escalate", function=escalate_to_engineer, dependencies=["approval"]))
-incident_orchestrator.add_task(Task(task_id="report", function=final_report, dependencies=["automated_fix", "escalate"]))
-
-# The initial data that kicks off the workflow
-initial_alert = {"device_id": "PUMP-07B", "error": "PRESSURE_SPIKE_DETECTED"}
-
-# Run the full incident response workflow
-incident_results = incident_orchestrator.run(initial_context={"ingest": initial_alert})
-
-print("\n--- Incident Response Workflow Complete ---")
-print(f"Final Report: {incident_results.get('report', {}).get('final_summary')}")
+results = incident.run({"alert": {"device_id": "PUMP-07B", "error": "PRESSURE_SPIKE_DETECTED"}})
+print("\nFinal report:", results["report"].get("result", results["report"]))
 ```
 
-This complete example shows how a complex, real-world process with AI decision-making, human oversight, and conditional branching can be modeled and executed reliably using a workflow orchestrator.
+The AI step is retried on transient failures, its output is structured (Chapter 11) so downstream code can rely on its fields, nothing happens to the equipment without a human decision, and if any step fails, everything downstream is marked `skipped` with the reason, rather than producing a misleading report.
 
 ## Beyond Scratch: Production Workflow Engines
 
-While building our own orchestrator was a great learning exercise, for production systems you should use a dedicated workflow engine. These tools provide features our simple implementation lacks, such as:
--   **A User Interface (UI):** To visualize DAGs, monitor progress, and inspect logs.
--   **Scheduling:** The ability to run workflows on a schedule (e.g., every night at 2 AM).
--   **Distributed Execution:** The ability to run tasks across multiple servers.
--   **Persistence:** Workflow state is saved to a database, so it can resume after a crash.
+Our orchestrator teaches the core ideas, but production systems should use a dedicated engine. There are two families, and it's worth knowing which one you need:
 
-Popular Python-based workflow engines include:
--   **Prefect:** Known for its modern, Python-native API and dynamic workflow capabilities. A great choice for many AI and data science tasks.
--   **Dagster:** Focuses heavily on data-awareness and providing a "single pane of glass" for all your data assets.
--   **Airflow:** The most mature and widely-used engine, originally from Airbnb. It's incredibly powerful but can have a steeper learning curve.
+**DAG schedulers** run pipelines of tasks, typically on a schedule, with retries, a UI, logs, and distributed workers. They are ideal for data and batch-AI pipelines (nightly embedding refreshes, scheduled report generation, evaluation runs).
+-   **Airflow:** the most widely used, very mature, with a steeper learning curve.
+-   **Prefect:** a modern, Python-native API with dynamic workflows.
+-   **Dagster:** organized around the data assets your pipelines produce.
 
-The core concepts you've learned—defining tasks, managing dependencies, and passing context—are directly applicable to all of these production-grade tools.
+**Durable-execution engines** make a long-running process survive crashes, restarts, and deployments by recording each step's result and replaying from the last completed step. A workflow can wait hours or days for a human approval or an external event, then continue exactly where it left off. This is the right model for business processes with human steps and for long-running agents.
+-   **Temporal** is the best-known example; several cloud services and newer frameworks offer similar guarantees, and agent frameworks such as LangGraph provide checkpointing and "interrupts" for pausing an agent until a human responds.
+
+The concepts you have learned (tasks, dependencies, data passing, idempotency, retries, and explicit human approval) carry over directly to all of these tools.
 
 ## Conclusion
 
-You have now learned how to think beyond single API calls and engineer complete, automated AI workflows. This is the key to moving AI from a simple feature to a core part of your business logic.
+You can now think beyond single API calls and engineer complete, automated AI workflows.
 
 Key takeaways:
--   Real-world processes are workflows, best modeled as **Directed Acyclic Graphs (DAGs)**.
--   A **workflow orchestrator** executes these graphs, managing dependencies and data flow.
--   Production workflows must include robust **error handling** and **retry logic**.
--   **Human-in-the-Loop (HITL)** is a critical safety pattern for high-stakes decisions, allowing for human oversight and approval within an automated process.
--   While building a simple orchestrator teaches the core concepts, production systems should leverage powerful, dedicated engines like **Prefect** or **Airflow**.
+-   Real-world processes are workflows, often best modeled as **DAGs**, with agent loops inside bounded steps where needed.
+-   An orchestrator computes the execution order, passes data between tasks, **retries** transient failures, and **stops downstream work** when something fails.
+-   Tasks with side effects must be **idempotent**.
+-   **Human-in-the-loop** approval is a critical safety pattern for high-stakes actions; use **durable execution** when approvals may take hours or days.
+-   Use a DAG scheduler for pipelines and a durable-execution engine for long-running, interactive processes.
 
-By mastering workflow orchestration, you can build AI systems that are not just intelligent, but also resilient, scalable, and safely integrated into your most critical operations.
+By mastering workflow orchestration, you can build AI systems that are not just intelligent but also resilient and safely integrated into critical operations.
 
 # References and Further Reading
 
-- [AI workflow orchestration will make your systems 10x smarter in 2025 (Superhuman Blog)](https://blog.superhuman.com/ai-workflow-orchestration/)
-- [Understanding AI Agentic Workflows: A Comprehensive Guide (Medium)](https://medium.com/@zhukov.vladimir/understanding-ai-agentic-workflows-a-comprehensive-guide-002c95c05e2a)
-- [What is AI Workflow? (Miquido)](https://www.miquido.com/ai-glossary/what-is-ai-workflow/)
-- [How to Use AI to Automate Your Workflow: 4 Examples (IoT For All)](https://www.iotforall.com/ai-workflow-automation-examples)
-- [Understanding and Implementing AI Workflows for Optimal Training and Deployment (Digital Realty)](https://www.digitalrealty.com/resources/articles/ai-workflows)
+- [graphlib: functionality to operate with graph-like structures (Python documentation)](https://docs.python.org/3/library/graphlib.html)
+- [Temporal documentation: durable execution](https://docs.temporal.io/)
+- [LangGraph documentation: human-in-the-loop](https://docs.langchain.com/oss/python/langgraph/interrupts)
+- [Apache Airflow documentation](https://airflow.apache.org/docs/)
+- [Prefect documentation](https://docs.prefect.io/)
+- [Building effective agents: workflows vs. agents (Anthropic, 2024)](https://www.anthropic.com/engineering/building-effective-agents)
