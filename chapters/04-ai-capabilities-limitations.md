@@ -332,10 +332,10 @@ By embracing this mindset, you'll avoid common pitfalls and build applications t
 
 # References and Further Reading
 
-- Understanding The Limitations Of AI (Artificial Intelligence). https://medium.com/@marklevisebook/understanding-the-limitations-of-ai-artificial-intelligence-a264c1e0b8ab
-- AI’s limitations: What artificial intelligence can’t do. https://lumenalta.com/insights/ai-limitations-what-artificial-intelligence-can-t-do
-- 14 Things AI Can — and Can't Do. GeeksforGeeks. https://www.geeksforgeeks.org/14-things-ai-can-and-cant-do/
-- Limitations of AI: What’s Holding Artificial Intelligence Back in 2025? https://visionx.io/blog/limitations-of-ai/
+- A Survey on Hallucination in Large Language Models (Huang et al., 2023). https://arxiv.org/abs/2311.05232
+- Why language models hallucinate (OpenAI, 2025). https://openai.com/index/why-language-models-hallucinate/
+- GSM-Symbolic: Understanding the Limitations of Mathematical Reasoning in Large Language Models (Mirzadeh et al., 2024). https://arxiv.org/abs/2410.05229
+- Reduce hallucinations (Claude API documentation). https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/reduce-hallucinations
 
 <!-- chapter-nav -->
 

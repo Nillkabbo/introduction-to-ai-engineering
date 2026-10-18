@@ -282,10 +282,10 @@ You now possess the foundational knowledge required to build any AI application.
 
 # References and Further Reading
 
-- The AI Engineering Handbook – How to Start a Career and Excel as an AI Engineer. https://www.freecodecamp.org/news/the-ai-engineering-handbook-how-to-start-a-career-and-excel-as-an-ai-engineer/
-- Artificial Intelligence Engineering | Software Engineering Institute, Carnegie Mellon University. https://www.sei.cmu.edu/our-work/artificial-intelligence-engineering/
+- The Rise of the AI Engineer (swyx, Latent Space, 2023). https://www.latent.space/p/ai-engineer
+- AI Engineering | Software Engineering Institute, Carnegie Mellon University. https://www.sei.cmu.edu/artificial-intelligence-engineering/
 - [WIP] Resources for AI engineers (Chip Huyen, 2025). https://github.com/chiphuyen/aie-book
-- What is Artificial Intelligence Engineering? | MIT Professional Education. https://professionalprograms.mit.edu/blog/technology/artificial-intelligence-engineering/
+- Developer quickstart (OpenAI API documentation). https://developers.openai.com/api/docs/quickstart
 - How we built our multi-agent research system (Anthropic, 2025): https://www.anthropic.com/engineering/built-multi-agent-research-system
 
 <!-- chapter-nav -->

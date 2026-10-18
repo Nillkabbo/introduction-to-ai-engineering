@@ -268,10 +268,10 @@ These three ideas—cost, meaning, and memory—are the levers you will constant
 
 # References and Further Reading
 
-- AI Tokens Explained: Understanding Context Windows and Processing. https://medium.com/@jimcanary/ai-tokens-explained-understanding-context-windows-and-processing-a99ca2dd9142
-- What Are AI Tokens and Context Windows (And Why Should You Care)? https://simple.ai/p/tokens-and-context-windows
+- What are tokens and how to count them? (OpenAI Help Center). https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
+- Vector embeddings (OpenAI API documentation). https://developers.openai.com/api/docs/guides/embeddings
 - From Tokens to Context Windows: Simplifying AI Jargon. Technology Policy Institute. https://techpolicyinstitute.org/publications/artificial-intelligence/from-tokens-to-context-windows-simplifying-ai-jargon/
-- AI Tokens Explained - What They Are and Why They Matter. https://zenvanriel.nl/ai-engineer-blog/ai-tokens-explained-what-they-are-and-why-they-matter/
+- Context windows (Claude API documentation). https://platform.claude.com/docs/en/build-with-claude/context-windows
 - Lost in the Middle: How Language Models Use Long Contexts (Liu et al., 2023). https://arxiv.org/abs/2307.03172
 - tiktoken (OpenAI's tokenizer library). https://github.com/openai/tiktoken
 

@@ -325,12 +325,11 @@ This architecture is robust, scalable, and responsive. It uses cheap, fast compu
 
 # References and Further Reading
 
-- Bringing Real-Time AI To The Core Of Your Business (LinkedIn): https://www.linkedin.com/pulse/bringing-real-time-ai-core-your-business-bernard-marr
-- Real-Time Decision Making with AI-Powered Data Analytics (Medium): https://medium.com/@jesse.henson/real-time-decision-making-with-ai-powered-data-analytics-efca4398f0c4
-- Real-Time Policy Enforcement with AI: How It Works (Magai): https://magai.co/real-time-policy-enforcement-with-ai/
+- WebSockets (FastAPI documentation): https://fastapi.tiangolo.com/advanced/websockets/
+- First Steps with Celery (Celery documentation): https://docs.celeryq.dev/en/main/getting-started/first-steps-with-celery.html
+- Real-time machine learning: challenges and solutions (Chip Huyen): https://huyenchip.com/2022/01/02/real-time-machine-learning-challenges-and-solutions.html
 - Agents as Escalators: Real-time AI Video Monitoring with Amazon Bedrock Agents and Video Streams (AWS): https://aws.amazon.com/blogs/machine-learning/agents-as-escalators-real-time-ai-video-monitoring-with-amazon-bedrock-agents-and-video-streams/
-- Real-Time Machine Learning: The Complete Guide (Xenonstack): https://www.xenonstack.com/blog/real-time-machine-learning
-- Real-Time Analytics with AI: Why Speed Matters in the Age of Data (DEV.to): https://dev.to/sanjana_shah_bia/real-time-analytics-with-ai-why-speed-matters-in-the-age-of-data-3006
+- Rate limits (OpenAI API documentation): https://developers.openai.com/api/docs/guides/rate-limits
 
 <!-- chapter-nav -->
 

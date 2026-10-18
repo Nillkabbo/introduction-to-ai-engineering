@@ -357,7 +357,7 @@ With this discipline, you can change prompts, upgrade models, and refactor with 
 - [Evaluation best practices (OpenAI)](https://platform.openai.com/docs/guides/evaluation-best-practices)
 - [pytest documentation: markers](https://docs.pytest.org/en/stable/how-to/mark.html)
 - [Locust documentation](https://docs.locust.io/)
-- [How to Test AI Agents Effectively (Galileo AI, 2024)](https://www.galileo.ai/blog/how-to-test-ai-agents-evaluation)
+- [Your AI Product Needs Evals (Hamel Husain, 2024)](https://hamel.dev/blog/posts/evals/index.html)
 
 <!-- chapter-nav -->
 

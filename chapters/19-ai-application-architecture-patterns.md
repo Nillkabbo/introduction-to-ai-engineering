@@ -342,11 +342,10 @@ This architecture effectively separates concerns, enabling independent scaling, 
 
 # References and Further Reading
 
-- Generative AI Design Patterns: A Comprehensive Guide (Towards Data Science): https://towardsdatascience.com/generative-ai-design-patterns-a-comprehensive-guide-41425a40d7d0
-- AI Patterns: A Structured Approach to Artificial Intelligence Development (Medium): https://medium.com/@xavier.mehaut/ai-patterns-a-structured-approach-to-artificial-intelligence-development-9d97903c8e34
+- Building A Generative AI Platform (Chip Huyen): https://huyenchip.com/2024/07/25/genai-platform.html
+- Microservices (James Lewis and Martin Fowler): https://martinfowler.com/articles/microservices.html
 - Architectural Patterns to Build End-to-End Data Driven Applications on AWS (AWS Whitepaper): https://docs.aws.amazon.com/whitepapers/latest/build-e2e-data-driven-applications/build-e2e-data-driven-applications.pdf
-- Unlocking the Hidden Power of AI Agents: Design Patterns That Delivered 300% Efficiency Gains (Towards AI): https://pub.towardsai.net/unlocking-the-hidden-power-of-ai-agents-design-patterns-that-delivered-300-efficiency-gains-4a3c947e5438
-- Microservices Architecture in Artificial Intelligence (Medium): https://shivakumar-goniwada.medium.com/microservices-architecture-in-artificial-intelligence-60bac5b4485d
+- Settings Management (Pydantic documentation): https://pydantic.dev/docs/validation/2.12/concepts/pydantic_settings/
 
 <!-- chapter-nav -->
 

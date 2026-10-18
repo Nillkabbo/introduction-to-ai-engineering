@@ -324,10 +324,11 @@ This solid foundation is not just for learning; it's the same setup professional
 
 # References and Further Reading
 
-- Setting up an AI/ML Engineering Dev Environment (Chris Johnson, Indeed). https://www.linkedin.com/pulse/setting-up-aiml-engineering-dev-environment-chris-johnson-cm9hc
-- Setting Up a Python Environment for AI Development: A Comprehensive Guide. https://medium.com/@flexianadevgroup/setting-up-a-python-environment-for-ai-development-a-comprehensive-guide-022602e337f4
-- Getting Started with AI Development: Setting Up Your Python Environment. https://dev.to/sahilmadhyan/getting-started-with-ai-development-setting-up-your-python-environment-275o
-- The Ultimate Deep Learning Project Structure: A Software Engineer’s Guide into the Land of AI. https://ai.plainenglish.io/the-ultimate-deep-learning-project-structure-a-software-engineers-guide-into-the-land-of-ai-c383f234fd2f
+- Install packages in a virtual environment using pip and venv (Python Packaging User Guide). https://packaging.python.org/guides/installing-using-pip-and-virtualenv
+- venv - Creation of virtual environments (Python documentation). https://docs.python.org/library/venv.html
+- python-dotenv (GitHub). https://github.com/theskumar/python-dotenv
+- Best Practices for API Key Safety (OpenAI Help Center). https://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety
+- Ignoring files (GitHub Docs). https://docs.github.com/en/get-started/git-basics/ignoring-files
 
 <!-- chapter-nav -->
 

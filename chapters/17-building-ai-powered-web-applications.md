@@ -451,10 +451,9 @@ This architecture creates a powerful, dynamic user experience. The dashboard loa
 # References and Further Reading
 
 - Concurrency and async/await (FastAPI documentation): https://fastapi.tiangolo.com/async/
-- How to Build an AI App: A Step-by-Step Guide (Vercel): https://vercel.com/guides/how-to-build-ai-app
-- How to Implement AI in Web Development: A Practical Guide with Real-Life Examples (DEV.to): https://dev.to/ansif_branding_84cec990b812/how-to-implement-ai-in-web-development-a-practical-guide-with-real-life-examples-4ljc
-- AI-Powered Web Applications: Building the Future with Django and TensorFlow (Medium): https://medium.com/@tarekeesa7/ai-powered-web-applications-building-the-future-with-django-and-tensorflow-4e71e83c0885
-- Building AI Applications on the Web (Manning): https://www.manning.com/books/building-ai-applications-on-the-web
+- Streaming API responses (OpenAI API documentation): https://developers.openai.com/api/docs/guides/streaming-responses
+- Request Files (FastAPI documentation): https://fastapi.tiangolo.com/tutorial/request-files/
+- Build AI-Enhanced Web Apps (Manning): https://www.manning.com/books/building-ai-applications-on-the-web
 - Build a Local and Offline-Capable Chatbot with WebLLM (web.dev): https://web.dev/articles/ai-chatbot-webllm
 
 <!-- chapter-nav -->

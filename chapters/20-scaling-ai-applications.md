@@ -351,9 +351,11 @@ This architecture is complex, but it is built from the simple patterns we've dis
 
 # References and Further Reading
 
-- Scalability of AI Solutions (Unaligned Newsletter): https://www.unaligned.io/p/scalability-of-ai-solutions
-- AI Scaling (IBM): https://www.ibm.com/think/topics/ai-scaling
-- Scalability in AI Projects: Strategies, Types & Challenges (Tribe AI): https://www.tribe.ai/applied-ai/ai-scalability
+- Rate limits (OpenAI API documentation): https://developers.openai.com/api/docs/guides/rate-limits
+- How to handle rate limits (OpenAI Cookbook): https://developers.openai.com/cookbook/examples/how_to_handle_rate_limits
+- Exponential Backoff And Jitter (AWS Architecture Blog): https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
+- Task options: retries and acks_late (Celery documentation): https://docs.celeryq.dev/en/latest/reference/celery.app.task.html
+- Semantic caching (RedisVL documentation): https://redis.io/docs/latest/integrate/redisvl/user-guide/semantic-caching
 
 <!-- chapter-nav -->
 
