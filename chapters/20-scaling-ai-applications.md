@@ -37,13 +37,9 @@ conversations = {}
 async def analyze_data_naively(device_id: str, data: dict):
     """This endpoint demonstrates several critical scaling anti-patterns."""
     
-    # 1. Synchronous AI Call: This blocks the server. If 10 users call this
-    #    at once, the 10th user might wait 30+ seconds for a response.
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": f"Analyze this data: {data}"}]
-    )
-    analysis = response.choices[0].message.content
+    # 1. Blocking call inside an async endpoint: it freezes the event loop, so
+    #    every other request on this worker waits until the model responds.
+    analysis = client.responses.create(model="gpt-6-luna", input=f"Analyze this data: {data}").output_text
     
     # 2. Unbounded Memory: This dictionary grows with every conversation,
     #    eventually leading to an out-of-memory crash.
@@ -62,6 +58,15 @@ async def analyze_data_naively(device_id: str, data: dict):
 
 To build a scalable system, we must address each of these issues with specific architectural patterns.
 
+## The First Bottleneck Is Usually Not Your Servers
+
+For applications built on hosted model APIs, an API server that does nothing but wait on network calls can handle a lot of concurrent requests (with async code, thousands). The limit you hit first is usually your **provider rate limits**: requests per minute and tokens per minute, set per model and per account tier. Plan for them explicitly:
+
+-   **Know your limits and your demand.** Estimate peak tokens per minute (requests × average input and output tokens) and compare with your quota. Ask for higher limits or a higher tier *before* launch day.
+-   **Spread load.** Different models have separate quotas, and you can route simple requests to a cheaper model (Chapter 21). Some providers and clouds offer reserved or provisioned throughput for guaranteed capacity.
+-   **Move work off the request path.** Anything that isn't interactive belongs in a queue (below) or in a Batch API job, which has its own, larger quota.
+-   **Shed load gracefully.** When you are near the limit, queue or reject low-priority work and keep a fallback provider ready (Chapter 8), rather than letting every request fail with 429 errors.
+
 ## Horizontal Scaling: More Servers, Not Bigger Servers
 
 **Horizontal scaling** (scaling out) means adding more server instances to handle the load, as opposed to **vertical scaling** (scaling up), which means making a single server more powerful. For AI, horizontal scaling is almost always the right choice, but it requires careful design to manage state and route requests intelligently.
@@ -71,7 +76,9 @@ To build a scalable system, we must address each of these issues with specific a
 A standard load balancer might just distribute requests randomly. An AI-aware load balancer is smarter. It needs to consider:
 -   **Server Health:** Is the server online and responding?
 -   **Current Load:** How many concurrent requests is a server already handling?
--   **Session Affinity (Sticky Sessions):** For conversational AI, it's more efficient to route all messages from the same conversation to the same server, which can keep the context in a local cache.
+-   **Session Affinity (Sticky Sessions):** Routing all messages of a conversation to the same server.
+
+A word of caution about stickiness. With hosted APIs, your servers should be **stateless**: keep conversation history in Redis or a database, so any server can handle any request and a server can die without losing conversations. Then sticky sessions are unnecessary. Affinity does pay off when you **self-host models**, because inference servers such as vLLM cache the processed prefix of a conversation (its "KV cache") in GPU memory, and routing follow-up turns to the same replica reuses that work. Treat affinity as an optimization, never as the place where state lives.
 
 Let's design a class that simulates such a load balancer.
 
@@ -132,7 +139,7 @@ class AILoadBalancer:
     # A health check loop would run in the background to update server.healthy status.
 ```
 
-This logic ensures that new requests are sent to the least busy server, while ongoing conversations are kept on the same server to leverage local caching of context, improving performance.
+This logic sends new requests to the least busy server and keeps ongoing conversations on the same server when it is healthy. (In this simulation, `current_load` would be incremented when a request starts and decremented when it finishes.) In practice you rarely write this yourself: load balancers such as NGINX, Envoy, or your cloud provider's offer least-connections routing, health checks, and consistent-hash affinity as configuration.
 
 ## The Queue-Based Architecture: Taming Variable Latency
 
@@ -162,28 +169,35 @@ from celery import Celery
 import openai
 
 app = Celery('ai_tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379/0')
-client = openai.OpenAI()
+client = openai.OpenAI(max_retries=0)   # Celery owns the retry policy; don't stack two (Chapter 8)
 
-@app.task
+# Retry transient API failures with backoff; acks_late re-queues the task if a worker crashes mid-task.
+@app.task(
+    autoretry_for=(openai.RateLimitError, openai.APIConnectionError, openai.InternalServerError),
+    retry_backoff=True, max_retries=5, acks_late=True,
+)
 def long_running_ai_analysis(prompt: str) -> str:
     """An AI task that can be run in the background by a Celery worker."""
     print(f"Worker starting analysis for prompt: '{prompt[:30]}...'")
-    response = client.chat.completions.create(
-        model="gpt-4o", # A more powerful, slower model
-        messages=[{"role": "user", "content": prompt}]
+    response = client.responses.create(
+        model="gpt-6-sol",                 # a more capable, slower model is fine off the request path
+        input=prompt,
+        reasoning={"effort": "high"},
     )
-    analysis = response.choices[0].message.content
     print("Worker finished analysis.")
-    return analysis
+    return response.output_text
 ```
 Next, our FastAPI application submits jobs to this queue instead of running them directly.
 
 ```python
 # main.py
-from fastapi import FastAPI, BackgroundTasks
-from pydantic import BaseModel
-from tasks import long_running_ai_analysis
+from typing import Optional
+
 from celery.result import AsyncResult
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+from tasks import long_running_ai_analysis
 
 app = FastAPI()
 
@@ -226,7 +240,7 @@ As we saw in the previous chapter, using the right database for the right job (p
 
 -   **AI Analysis Results (JSON Blobs):** Store these in a document database like **MongoDB** or a PostgreSQL `JSONB` column. Create indexes on key fields within the JSON that you frequently query (e.g., `device_id`, `analysis_type`, `model_name`).
 
--   **Vector Embeddings:** At scale, a simple `numpy` search is too slow. A dedicated **vector database** like ChromaDB, Weaviate, or Pinecone is essential. These databases use specialized indexing algorithms (like HNSW) to perform lightning-fast similarity searches on millions or billions of vectors.
+-   **Vector Embeddings:** At scale, a simple `numpy` search is too slow. Use an approximate-nearest-neighbor index, either in PostgreSQL with `pgvector` or in a dedicated **vector database** such as Weaviate, Qdrant, Pinecone, or ChromaDB. These databases use specialized indexing algorithms (like HNSW) to perform lightning-fast similarity searches on millions or billions of vectors.
 
 ## Caching at Scale: A Multi-Level Approach
 
@@ -271,7 +285,7 @@ A powerful, AI-specific caching technique is **semantic caching**. Instead of ca
 2.  Search your vector database for existing prompts with a similar meaning (a high cosine similarity).
 3.  If a sufficiently similar prompt is found, return its cached response instead of making a new API call.
 
-This can dramatically increase your cache hit rate, as it can serve cached results for paraphrased or slightly different questions that have the same underlying intent.
+This can raise your cache hit rate, because paraphrased questions with the same intent can share an answer. It also carries a real risk: **sentences that differ only in a crucial detail are often extremely similar in embedding space.** "What is the status of sensor T-101?" and "What is the status of sensor T-102?" may score above any sensible threshold, and the second user gets the first sensor's status. Use semantic caching only for content that doesn't depend on such details (general FAQs, documentation questions), add exact-match checks for entities like IDs, dates, and numbers, and measure the false-hit rate on real traffic before enabling it (Chapter 21).
 
 ## A Complete, Scalable IoT Platform Architecture
 
@@ -311,8 +325,9 @@ graph LR
 -   **Regional Independence:** Each region is a self-contained copy of the application, with its own API gateway, load balancer, servers, queue, and workers.
 -   **Horizontal Scaling in Each Region:** The AI server pool (`S1`, `S2`, `S3`) and the worker pool (`W`) can be scaled independently based on load.
 -   **Asynchronous Processing:** All heavy AI work is handled by the Celery worker pool via the RabbitMQ queue, keeping the API servers fast and responsive.
--   **Shared State:** Caches (Redis) and Databases (PostgreSQL, Vector DBs, etc.) are shared within a region. Database replication keeps the regions in sync.
--   **High Availability:** If the entire `us-east-1` region goes down, the Geo-DNS can automatically reroute all traffic to `eu-west-1`.
+-   **Shared State:** Caches (Redis) and Databases (PostgreSQL, Vector DBs, etc.) are shared within a region. Replication keeps selected data in sync across regions.
+-   **High Availability:** If the entire `us-east-1` region goes down, the Geo-DNS can automatically reroute traffic to `eu-west-1`.
+-   **Data Residency:** Regions are also a compliance boundary. Personal data of EU users may need to stay in the EU (GDPR), so decide deliberately what replicates across regions, and which model endpoints each region may call; several providers offer region-specific processing for this reason.
 
 This architecture is complex, but it is built from the simple patterns we've discussed. It provides the foundation for an AI application that can serve millions of users globally with high performance and reliability.
 

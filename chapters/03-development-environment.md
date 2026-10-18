@@ -32,11 +32,11 @@ First, let's check if Python is already installed on your system. Open your term
 python3 --version
 ```
 
-If you see a version number like `Python 3.9.x` or higher, you're in great shape. If you get an error or the version is older than 3.9, you'll need to install or update it.
+If you see `Python 3.12` or newer, you're in great shape. Python 3.10 is the minimum for the current AI libraries used in this book (several, including the Anthropic SDK and LangChain, no longer support older versions). If you get an error or an older version, install a current one.
 
 ### Step 2: Installing Python (If Necessary)
 
--   **Windows:** Go to the official [python.org](https://www.python.org/downloads/) website, download the latest stable version (e.g., Python 3.11), and run the installer. **Crucially, on the first screen of the installer, check the box that says "Add Python to PATH."** This will make it accessible from your command prompt.
+-   **Windows:** Go to the official [python.org](https://www.python.org/downloads/) website, download the latest stable version, and run the installer. **Crucially, on the first screen of the installer, check the box that says "Add Python to PATH."** This will make it accessible from your command prompt.
 -   **macOS:** The easiest way is with Homebrew, a package manager for macOS.
     ```bash
     # Install Homebrew (if you don't have it)
@@ -85,14 +85,20 @@ Now, you need to **activate** it. The command differs slightly by operating syst
     ```bash
     venv\Scripts\activate
     ```
+-   **Windows (PowerShell):**
+    ```powershell
+    venv\Scripts\Activate.ps1
+    ```
 
 Once activated, you'll see `(venv)` at the beginning of your terminal prompt. This tells you that you are now working inside your isolated project environment.
+
+> **A faster alternative: `uv`.** Many Python teams now use [uv](https://docs.astral.sh/uv/), a fast all-in-one tool that installs Python versions, creates virtual environments, and manages dependencies with a lock file (`uv init`, `uv add openai`, `uv run main.py`). Everything in this book works the same with `venv` + `pip` or with `uv`. Pick one and use it consistently.
 
 ## Installing the Essential AI Libraries
 
 With our environment ready, we can install the necessary packages. We'll start with just two:
 
-1.  `openai`: The official Python library for interacting with OpenAI's models (like GPT-4).
+1.  `openai`: The official Python library for interacting with OpenAI's models.
 2.  `python-dotenv`: A utility for managing secret keys securely.
 
 ```bash
@@ -123,9 +129,10 @@ Inside your `simple-chatbot` project directory, create a new file named `.env`. 
 ```
 # In your .env file
 OPENAI_API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+OPENAI_MODEL="gpt-6-luna"
 ```
 
-Replace `sk-xxx...` with the actual key you just copied.
+Replace `sk-xxx...` with the actual key you just copied. We also put the model name here: model IDs change several times a year, and keeping them in configuration means you can switch models without touching code.
 
 ### Step 3: Tell Git to Ignore Your Secrets
 
@@ -169,13 +176,13 @@ else:
     
     # Let's test it with a real API call
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": "Confirm you are operational."}]
+        response = client.responses.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-6-luna"),
+            input="Confirm you are operational."
         )
         print("🎉 AI is responding! Your setup is complete.")
-        print(f"AI: {response.choices[0].message.content}")
-    except Exception as e:
+        print(f"AI: {response.output_text}")
+    except openai.OpenAIError as e:
         print(f"An error occurred: {e}")
 ```
 
@@ -213,6 +220,8 @@ It's a best practice to list your project's dependencies in a `requirements.txt`
 pip freeze > requirements.txt
 ```
 
+`pip freeze` pins every installed package to an exact version, which makes the environment reproducible. (With `uv`, the `uv.lock` file plays this role.)
+
 ### The `main.py` Chatbot Code
 
 Let's rewrite `main.py` to be a reusable class and interactive loop.
@@ -232,6 +241,7 @@ class Chatbot:
             raise ValueError("OPENAI_API_KEY not found in .env file.")
         
         self.client = openai.OpenAI(api_key=api_key)
+        self.model = os.getenv("OPENAI_MODEL", "gpt-6-luna")
         
         # Initialize conversation history with a system message
         self.conversation_history = [
@@ -246,21 +256,19 @@ class Chatbot:
 
         try:
             # Make the API call with the entire conversation history
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=self.conversation_history
+            response = self.client.responses.create(
+                model=self.model,
+                input=self.conversation_history
             )
-            
-            # Extract the AI's response message
-            ai_message = response.choices[0].message.content
-            
-            # Add the AI's response to the history for future context
-            self.conversation_history.append({"role": "assistant", "content": ai_message})
-            
-            return ai_message
-        
-        except Exception as e:
+        except openai.OpenAIError as e:
+            # Remove the unanswered message so the history stays consistent.
+            self.conversation_history.pop()
             return f"An error occurred: {e}"
+
+        ai_message = response.output_text
+        # Add the AI's response to the history for future context
+        self.conversation_history.append({"role": "assistant", "content": ai_message})
+        return ai_message
 
     def start(self):
         """Starts the interactive chat loop."""
@@ -294,7 +302,7 @@ Now, run your complete chatbot:
 python main.py
 ```
 
-You can now have a continuous conversation with your AI assistant. Ask it a question, and then ask a follow-up. It will remember the context because we are sending the entire `conversation_history` with each new request.
+You can now have a continuous conversation with your AI assistant. Ask it a question, and then ask a follow-up. It will remember the context because we are sending the entire `conversation_history` with each new request. (For very long chats, trim the history as shown in Chapter 2. The Responses API can also store the conversation on OpenAI's side if you pass `previous_response_id`, which Chapter 5 covers.)
 
 ## What You've Accomplished
 

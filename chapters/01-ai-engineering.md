@@ -64,7 +64,7 @@ prompt = "What is a 20% tip on a $50.00 bill?"
 # AI Response: "A 20% tip on a $50.00 bill is $10.00."
 ```
 
-This shift from *instructing* to *describing* opens up a new world of possibilities. It allows you to build features that would have previously required teams of machine learning experts, often with just a few lines of code and a well-crafted prompt.
+This shift from *instructing* to *describing* opens up a new world of possibilities. It does not replace ordinary code: the tip calculation above is exactly the kind of task deterministic code does better, as Chapter 4 explains. The new capability is handling messy, open-ended language that no `if` statement could anticipate. It allows you to build features that would have previously required teams of machine learning experts, often with just a few lines of code and a well-crafted prompt.
 
 ## Your First Real AI Call
 
@@ -122,22 +122,18 @@ Now for the code. This is the "Hello, World!" of AI programming.
 ```python
 import openai
 
-# It's best practice to set your API key as an environment variable
-# and not hard-code it in your script. The library will find it automatically.
-# Example: export OPENAI_API_KEY='your-key-here'
+# The library reads the OPENAI_API_KEY environment variable automatically.
 client = openai.OpenAI()
 
-# Make a request to the AI
-response = client.chat.completions.create(
-    model="gpt-4o-mini",  # We specify which model to use.
-    messages=[
-        {"role": "user", "content": "Say 'Hello, AI world!'"}
-    ]
+# Model IDs change often. Keep the name in one place (later: in configuration).
+MODEL = "gpt-6-luna"
+
+response = client.responses.create(
+    model=MODEL,
+    input="Say 'Hello, AI world!'",
 )
 
-# Extract and print the AI's textual response
-ai_response_text = response.choices[0].message.content
-print(ai_response_text)
+print(response.output_text)
 ```
 
 **Output:**
@@ -148,12 +144,14 @@ Hello, AI world!
 
 Congratulations! You have successfully commanded an AI. Let's break down what just happened:
 
-1.  `import openai`: We imported the necessary library.
+1.  `import openai`: We imported the official library.
 2.  `client = openai.OpenAI()`: We created a "client," which is our connection to the AI service.
-3.  `client.chat.completions.create(...)`: This is the core function call. We are creating a "chat completion."
-4.  `model="gpt-4o-mini"`: We told the service which specific AI model to use. `gpt-4o-mini` is a great, cost-effective choice for getting started.
-5.  `messages=[...]`: This is the most important part. We provided the conversation history, which in this case was just a single message from the "user."
-6.  `response.choices[0].message.content`: The API returns a structured object. We navigated through it to pull out the plain text response from the AI.
+3.  `client.responses.create(...)`: This is the core call to OpenAI's **Responses API**, the interface OpenAI recommends for new projects.
+4.  `model=MODEL`: We told the service which model to use. `gpt-6-luna` is OpenAI's cost-efficient model at the time of writing (October 2026). Check the provider's model page for current names.
+5.  `input=...`: The prompt. It can be a plain string, as here, or a list of messages (which we'll see next).
+6.  `response.output_text`: A convenience property that collects the text the model generated.
+
+> **You will also see `client.chat.completions.create(...)`.** That is OpenAI's older Chat Completions API. It is still supported and most code written before 2025 uses it. The concepts (models, messages, roles) are identical; Chapter 5 shows both side by side.
 
 ## The Structure of a Conversation
 
@@ -163,7 +161,7 @@ There are three primary roles:
 
 1.  **`user`**: This is you. It represents the prompts, questions, or instructions from the human user.
 2.  **`assistant`**: This is the AI. It represents the AI's previous responses in the conversation.
-3.  **`system`**: This is a special, high-level instruction that tells the AI *how to behave* throughout the entire conversation. It's like giving an actor their character notes before they go on stage.
+3.  **`system`**: This is a special, high-level instruction that tells the AI *how to behave* throughout the entire conversation. It's like giving an actor their character notes before they go on stage. (OpenAI also calls this the `developer` role, and the Responses API accepts it as a separate `instructions` parameter; Anthropic uses a `system` parameter. The idea is the same everywhere.)
 
 Let's see how these roles work together.
 
@@ -197,6 +195,7 @@ Let's use this structure to build a slightly more useful tool. We'll create an a
 import openai
 
 client = openai.OpenAI()
+MODEL = "gpt-6-luna"
 
 # A raw message from an IoT device
 device_message = "TEMP_SENSOR_01: 85.2C STATUS:WARNING"
@@ -213,14 +212,13 @@ conversation = [
     }
 ]
 
-# Make the API call
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=conversation
+# The Responses API accepts the same list of role/content messages as `input`.
+response = client.responses.create(
+    model=MODEL,
+    input=conversation
 )
 
-explanation = response.choices[0].message.content
-print(explanation)
+print(response.output_text)
 ```
 
 **Example Output:**
@@ -235,32 +233,33 @@ You don't need a deep understanding of neural networks to use LLMs, but a simple
 
 LLMs don't understand words; they understand math. Here’s a simplified view of what happens when you send a prompt:
 
-1.  **Tokenization:** Your text is broken down into smaller pieces called "tokens." A token is often a word or part of a word.
-    `"Hello, world!"` might become `["Hello", ",", " ", "world", "!"]`
+1.  **Tokenization:** Your text is broken down into smaller pieces called "tokens." A token is often a word or part of a word, and the leading space usually belongs to the token.
+    `"Hello, world!"` typically becomes something like `["Hello", ",", " world", "!"]`
 
 2.  **Embedding:** Each token is converted into a long list of numbers (a vector). This vector represents the token's "meaning" in a mathematical space. Words with similar meanings will have similar vectors.
 
-3.  **Prediction:** The core of the LLM is a massive neural network. It takes the sequence of number vectors and, based on the patterns it learned during training, calculates the most probable sequence of vectors that should come next.
+3.  **Prediction:** The core of the LLM is a massive neural network. It reads the whole sequence so far and outputs a probability for every possible *next token* in its vocabulary.
 
-4.  **Decoding:** The predicted sequence of vectors is converted back into text tokens, which are then assembled into the response you see.
+4.  **Sampling and repeating:** One token is picked from that distribution (the most likely one, or a weighted random choice), appended to the sequence, and the whole step repeats, one token at a time, until the model emits a "stop" token. This is why responses stream in word by word, and why output length drives latency and cost.
 
 The key insight here is that **LLMs are masters of context and pattern recognition**. The more context you provide in your prompt (through clear instructions, examples, and conversation history), the better the AI can recognize the pattern you're aiming for and produce the desired output.
 
 ## The Landscape of AI Models
 
-Just as you can choose between different programming languages, you can choose between different AI models. They vary in capability, speed, and cost. Here are the main players you'll encounter:
+Just as you can choose between different programming languages, you can choose between different AI models. They vary in capability, speed, and cost. Every major provider offers a family with tiers, from small/cheap/fast to large/expensive/most capable. As of October 2026:
 
--   **OpenAI's GPT series:**
-    -   `gpt-4o-mini`: The latest cost-effective model. Fast, smart, and a fantastic starting point.
-    -   `gpt-4o`: OpenAI's flagship model. Incredibly powerful, excellent at complex reasoning, but more expensive.
+| Provider | Cost-efficient tier | Balanced / flagship tier | Most capable |
+| --- | --- | --- | --- |
+| OpenAI (GPT) | `gpt-6-luna` | `gpt-6-sol` | `gpt-6-astra` |
+| Anthropic (Claude) | `claude-haiku-5-5` | `claude-sonnet-5-5` | `claude-opus-5-5` |
+| Google (Gemini) | `gemini-3.5-flash-lite` | `gemini-3.8-flash` | `gemini-4-argon` |
 
--   **Anthropic's Claude series:**
-    -   `claude-3-5-sonnet`: A powerful and very capable competitor to GPT-4, known for its large context windows and strong performance.
+Two things changed the landscape in 2025–2026 and are worth knowing from day one:
 
--   **Google's Gemini series:**
-    -   `gemini-2.5-pro`: Google's flagship model, known for its massive context window and strong multimodal (text, image, video) capabilities.
+-   **Most flagship models are now "reasoning" models.** They think internally before answering, which makes them much better at multi-step problems but slower and more expensive per request. Many let you dial the amount of reasoning up or down (OpenAI calls it *reasoning effort*, Anthropic calls it *effort*, Google calls it a *thinking level*).
+-   **Context windows of around one million tokens are common.** That changes what is possible, but it does not make context free (Chapter 2).
 
-**Our Recommendation for Learning:** Start with **`gpt-4o-mini`**. It offers the best balance of performance, features, and cost for developers who are just getting started. The core concepts you learn will be directly transferable to any other model.
+**Our Recommendation for Learning:** Start with a cost-efficient model such as **`gpt-6-luna`**, and keep the model name in a single variable so you can swap it. The core concepts you learn transfer directly to any provider, and model names will have changed again by the time you read this, so treat the table above as a snapshot.
 
 ## What You've Learned
 

@@ -54,6 +54,8 @@ Let's apply this to an idea that builds on the concepts from this book: an AI-po
 
 Spending an hour filling out this canvas can save you months of building the wrong thing. It forces clarity and exposes the weakest parts of your idea before you invest significant resources.
 
+Look critically at box 5 of our own example, because it illustrates the most common technical mistake in AI products: choosing the fashionable tool instead of the right one. Predicting time-to-failure from vibration, temperature, and pressure time series is a classic **machine-learning** problem. Anomaly detection and gradient-boosted or survival models trained on labeled failure history do it better, cheaper, and more transparently than an LLM reading raw sensor numbers. Where LLMs shine in PredictoMaint is everywhere *around* that core: explaining an anomaly in plain language, cross-referencing maintenance manuals (RAG), drafting work orders, and answering technicians' questions. A better AI Core entry would be: "Statistical/ML models for anomaly detection and failure prediction; LLMs for explanation, documentation search, and ticket drafting."
+
 ## The Build: From MVP to a Learning Machine
 
 With a validated idea, it's time to build. But don't build the whole thing. Your goal is to build a **Minimum Viable Product (MVP)**—the smallest possible version of your product that can solve the core problem for your early adopters.
@@ -93,7 +95,7 @@ For **PredictoMaint**, the flywheel works like this:
 4.  The improved model can now predict failures more accurately for *all* of our customers.
 5.  This makes the product more valuable, which attracts more customers, which brings in more unique data, and the cycle repeats.
 
-Your product architecture must be designed from day one to capture this interaction data (with user consent and privacy protections, of course). This is your "unfair advantage."
+Your product architecture must be designed from day one to capture this interaction data, and your contracts must allow you to use it. In B2B products this is not a formality: many customers will not let you train on their data, or use it to improve a model that serves their competitors, unless the agreement explicitly says so. Decide early what you will ask for (aggregated failure signatures? anonymized data only? opt-in?), get it in writing, and respect privacy law. Done properly, this is your "unfair advantage."
 
 ### The Ethical Review Checklist
 
@@ -101,7 +103,8 @@ Before you launch, you must conduct an ethical review. AI products carry unique 
 -   **Safety:** What is the worst-case scenario if our AI gives a wrong answer? (For PredictoMaint, a missed prediction could lead to equipment damage). What safeguards are in place? (e.g., A Human-in-the-Loop approval for critical maintenance).
 -   **Bias:** Is our training data representative? Could our AI be biased against certain types of machines, environments, or users?
 -   **Privacy:** Are we handling user data responsibly? Is sensitive information anonymized before being sent to third-party APIs? Do users have control over their data?
--   **Transparency:** Are we clear with our users about what is AI-generated and what is not? Do we explain the limitations of our AI?
+-   **Transparency:** Are we clear with our users about what is AI-generated and what is not? Do we explain the limitations of our AI? (In some jurisdictions, such as the EU under the AI Act, telling people they are interacting with an AI system is a legal requirement, not just good practice.)
+-   **Security:** Could someone manipulate the AI through the content it reads (prompt injection, Chapter 22)? What is the worst thing it could do if they succeeded?
 
 ## The Launch and Beyond: The Whole Product
 
@@ -109,7 +112,7 @@ Launching your MVP is just the beginning. A successful product is more than just
 
 -   **User Experience (UX):** Is the interface intuitive? Does it build trust? How do you display AI-generated content so that users understand its probabilistic nature?
 -   **Documentation & Support:** How do you explain your AI's features? What happens when a user gets a confusing or incorrect answer?
--   **The Iteration Loop:** AI products are never "done." You are in a constant loop of collecting user feedback, analyzing model performance, gathering new data, and redeploying improved versions. Your DevOps pipeline (Chapter 25) is critical to making this loop fast and reliable.
+-   **The Iteration Loop:** AI products are never "done." You are in a constant loop of collecting user feedback, analyzing model performance, gathering new data, and redeploying improved versions. Turn every failure users report into a test case in your evaluation set (Chapter 24), so the same mistake can't quietly return, and let your DevOps pipeline (Chapter 25) run those evals on every change. Plan for the models underneath you to change too: providers release better models and retire old ones every few months, and your evals are what let you switch with confidence.
 
 ## Your Journey as an AI Architect
 

@@ -24,7 +24,7 @@ This book is about building. By the time you're finished, you will be able to:
 -   **Architect and deploy AI applications** that are scalable, reliable, and cost-effective.
 -   **Test and debug** probabilistic AI systems with confidence.
 
-Every technique is demonstrated with Python code that you can run and experiment with immediately. Every pattern has been vetted in real-world production environments.
+Every technique is demonstrated with Python code that you can run and experiment with. The snippets are teaching examples: they show the pattern clearly, and the text points out what you would add (error handling, configuration, tests) before using them in production.
 
 ### A Note on the Tools Used
 
@@ -33,6 +33,8 @@ It is only fitting that a book about applied AI was itself created with the help
 ### On a Fast-Moving Field
 
 The AI landscape moves at a dizzying pace. The model you use today might be superseded in six months. A new API might change its syntax. This can feel daunting, but it's why this book focuses on what lasts.
+
+This edition was reviewed and updated in October 2026. Model names, SDK calls, and platform details reflect that date. Expect them to keep changing: keep model IDs in configuration rather than hard-coding them, and check each provider's live model and pricing pages before you ship.
 
 While specific API endpoints or model names will undoubtedly change, the fundamental principles of interacting with large language models are remarkably durable. The concepts of prompt engineering, managing context windows, designing agentic workflows, and ensuring system safety are the essential mechanics of this new field. The tools will evolve, but the foundation you build here will remain relevant. Think of it like learning to drive: the make and model of the car will change, but the principles of steering, accelerating, braking, and navigating traffic are timeless.
 

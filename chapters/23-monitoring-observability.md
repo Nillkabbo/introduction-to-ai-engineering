@@ -40,19 +40,18 @@ Let's create a centralized function for making AI calls that automatically logs 
 
 ```python
 # structured_logging_example.py
-import openai
-import os
-from dotenv import load_dotenv
-import structlog
+import time
 import uuid
-from datetime import datetime
+
+import openai
+import structlog
+from dotenv import load_dotenv
 
 # --- Configure structlog for JSON output ---
 structlog.configure(
     processors=[
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.add_logger_name,
-        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.JSONRenderer(),
     ]
 )
@@ -60,30 +59,21 @@ log = structlog.get_logger()
 
 # --- Load API Key and Initialize Client ---
 load_dotenv()
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = openai.OpenAI()
+PROMPT_VERSION = "device-explainer@2026-10-01"
 
-def monitored_ai_call(prompt: str, user_id: str, model: str = "gpt-4o-mini"):
+def monitored_ai_call(prompt: str, user_id: str, model: str = "gpt-6-luna") -> str:
     """Makes an AI call with comprehensive structured logging."""
     
     request_id = str(uuid.uuid4())
-    start_time = datetime.now()
+    start = time.monotonic()
 
-    log.info(
-        "ai_call_start",
-        request_id=request_id,
-        user_id=user_id,
-        model=model,
-        prompt_length=len(prompt)
-    )
+    log.info("ai_call_start", request_id=request_id, user_id=user_id, model=model,
+             prompt_version=PROMPT_VERSION, prompt_chars=len(prompt))
 
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        latency_ms = (datetime.now() - start_time).total_seconds() * 1000
-        ai_response_text = response.choices[0].message.content
+        response = client.responses.create(model=model, input=prompt)
+        latency_ms = (time.monotonic() - start) * 1000
         usage = response.usage
 
         log.info(
@@ -91,18 +81,22 @@ def monitored_ai_call(prompt: str, user_id: str, model: str = "gpt-4o-mini"):
             request_id=request_id,
             user_id=user_id,
             model=model,
+            prompt_version=PROMPT_VERSION,
+            provider_request_id=response.id,         # lets you match your logs with the provider's
             latency_ms=round(latency_ms, 2),
-            input_tokens=usage.prompt_tokens,
-            output_tokens=usage.completion_tokens,
-            total_tokens=usage.total_tokens,
-            # In production, you might log a hash of the prompt/response for privacy
+            input_tokens=usage.input_tokens,
+            cached_tokens=usage.input_tokens_details.cached_tokens,
+            output_tokens=usage.output_tokens,
+            reasoning_tokens=usage.output_tokens_details.reasoning_tokens,
+            # Full prompts and responses may contain personal data: log them only where
+            # your privacy policy allows, with access control and a retention limit.
             prompt=prompt,
-            response=ai_response_text
+            response=response.output_text,
         )
-        return ai_response_text
+        return response.output_text
         
-    except Exception as e:
-        latency_ms = (datetime.now() - start_time).total_seconds() * 1000
+    except openai.OpenAIError as e:
+        latency_ms = (time.monotonic() - start) * 1000
         log.error(
             "ai_call_failure",
             request_id=request_id,
@@ -127,12 +121,13 @@ except Exception:
 Running this code produces beautifully structured JSON logs that can be easily ingested and analyzed:
 
 ```json
-{"level": "info", "logger": "__main__", "timestamp": "2024-07-10T14:30:00.123Z", "event": "ai_call_start", "request_id": "...", "user_id": "user-123", "model": "gpt-4o-mini", "prompt_length": 55}
-{"level": "info", "logger": "__main__", "timestamp": "2024-07-10T14:30:01.456Z", "event": "ai_call_success", "request_id": "...", "user_id": "user-123", "model": "gpt-4o-mini", "latency_ms": 1333.0, "input_tokens": 15, "output_tokens": 120, "total_tokens": 135, "prompt": "...", "response": "..."}
+{"event": "ai_call_start", "request_id": "...", "user_id": "user-123", "model": "gpt-6-luna", "prompt_version": "device-explainer@2026-10-01", "prompt_chars": 58, "level": "info", "timestamp": "2026-10-18T14:30:00.123Z"}
+{"event": "ai_call_success", "request_id": "...", "user_id": "user-123", "model": "gpt-6-luna", "latency_ms": 1333.0, "input_tokens": 15, "cached_tokens": 0, "output_tokens": 320, "reasoning_tokens": 192, "prompt": "...", "response": "...", "level": "info", "timestamp": "2026-10-18T14:30:01.456Z"}
 ```
 
 With logs like these, you can easily answer questions like:
--   "Show me all failed API calls for `gpt-4o` in the last hour."
+-   "Show me all failed API calls for `gpt-6-sol` in the last hour."
+-   "Which prompt version produced this bad answer?"
 -   "Find all interactions from `user-123` that took longer than 3 seconds."
 -   "What was the exact prompt that led to this specific erroneous response?"
 
@@ -206,57 +201,50 @@ Now, let's update our `monitored_ai_call` function to update these metrics with 
 # monitored_ai_with_metrics.py
 # (Includes code from logging example and metrics definitions)
 
-# A simplified cost model for demonstration
-MODEL_COSTS = {"gpt-4o-mini": {"input": 0.15, "output": 0.60}} # per 1M tokens
+# Illustrative prices in USD per 1M tokens; load real ones from configuration (Chapter 21).
+MODEL_PRICES = {"gpt-6-luna": {"input": 0.10, "cached_input": 0.01, "output": 0.50}}
 
-def monitored_ai_call_with_metrics(prompt: str, user_id: str, model: str = "gpt-4o-mini"):
-    """Makes an AI call instrumented with structured logging and Prometheus metrics."""
-    
-    request_id = str(uuid.uuid4())
-    start_time = datetime.now()
-    log.info("ai_call_start", ...) # As before
+def monitored_ai_call_with_metrics(prompt: str, user_id: str, model: str = "gpt-6-luna") -> str:
+    """An AI call instrumented with structured logging and Prometheus metrics."""
+    labels = {"model": model, "provider": "openai"}
 
-    # The Histogram context manager automatically times the code block
-    with AI_API_CALL_DURATION_SECONDS.labels(model=model, provider='openai').time():
+    # The Histogram context manager times the block, including failures.
+    with AI_API_CALL_DURATION_SECONDS.labels(**labels).time():
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            # ... (log success message as before) ...
-            
-            # --- Update Metrics on Success ---
-            AI_API_CALLS_TOTAL.labels(model=model, provider='openai', status='success').inc()
-            
-            usage = response.usage
-            TOKENS_PROCESSED_TOTAL.labels(model=model, provider='openai', direction='input').inc(usage.prompt_tokens)
-            TOKENS_PROCESSED_TOTAL.labels(model=model, provider='openai', direction='output').inc(usage.completion_tokens)
-            
-            cost = ((usage.prompt_tokens / 1_000_000) * MODEL_COSTS[model]['input'] +
-                    (usage.completion_tokens / 1_000_000) * MODEL_COSTS[model]['output'])
-            ESTIMATED_COST_USD_TOTAL.labels(model=model, provider='openai').inc(cost)
-            
-            return response.choices[0].message.content
-            
-        except Exception as e:
-            # ... (log error message as before) ...
-            
-            # --- Update Metrics on Failure ---
-            AI_API_CALLS_TOTAL.labels(model=model, provider='openai', status='failure').inc()
+            response = client.responses.create(model=model, input=prompt)
+        except openai.OpenAIError as e:
+            AI_API_CALLS_TOTAL.labels(**labels, status="failure").inc()
+            log.error("ai_call_failure", user_id=user_id, model=model, error_type=type(e).__name__)
             raise
+
+    AI_API_CALLS_TOTAL.labels(**labels, status="success").inc()
+    usage = response.usage
+    cached = usage.input_tokens_details.cached_tokens
+    TOKENS_PROCESSED_TOTAL.labels(**labels, direction="input").inc(usage.input_tokens)
+    TOKENS_PROCESSED_TOTAL.labels(**labels, direction="output").inc(usage.output_tokens)
+
+    price = MODEL_PRICES[model]
+    cost = ((usage.input_tokens - cached) * price["input"]
+            + cached * price["cached_input"]
+            + usage.output_tokens * price["output"]) / 1_000_000
+    ESTIMATED_COST_USD_TOTAL.labels(**labels).inc(cost)
+
+    log.info("ai_call_success", user_id=user_id, model=model, prompt_version=PROMPT_VERSION,
+             input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, cost_usd=round(cost, 6))
+    return response.output_text
 ```
 
-To make these metrics accessible, you simply need to run a small HTTP server in your application.
+Note what is *not* a label: `user_id`. Every distinct label value creates a separate time series in Prometheus, so high-cardinality values (user IDs, request IDs, prompt text) belong in logs and traces, not in metric labels.
+
+To make these metrics accessible, expose a `/metrics` endpoint. In a FastAPI application, mount it on the app itself (as in the project below); in a standalone worker process, run a small metrics server:
 
 ```python
 from prometheus_client import start_http_server
 
-# In your application's main entry point:
-start_http_server(8000) # Expose metrics on port 8000
+start_http_server(9100)  # a port your web server isn't using
 ```
 
-Now, a Prometheus instance can be configured to scrape the `/metrics` endpoint at `http://localhost:8000`, collecting all this valuable data over time.
+A Prometheus server then scrapes the endpoint periodically and stores the history for dashboards and alerts.
 
 ## Pillar 3: Distributed Tracing
 
@@ -297,16 +285,19 @@ We can now use this tracer to create "spans," which represent individual units o
 # monitored_ai_with_tracing.py
 # (Includes all previous code)
 
-def final_monitored_ai_call(prompt: str, user_id: str, model: str = "gpt-4o-mini"):
+def final_monitored_ai_call(prompt: str, user_id: str, model: str = "gpt-6-luna") -> str:
     """The final version of our monitored function, now with tracing."""
     
     # tracer.start_as_current_span creates a new span for the trace.
     # The 'with' statement ensures it's properly closed.
-    with tracer.start_as_current_span("ai_api_call") as span:
-        # Add attributes (metadata) to the span for rich context
-        span.set_attribute("ai.model", model)
-        span.set_attribute("user.id", user_id)
-        span.set_attribute("prompt.length", len(prompt))
+    with tracer.start_as_current_span(f"chat {model}") as span:
+        # Attribute names follow the OpenTelemetry GenAI semantic conventions where they exist,
+        # so any compatible backend can display them.
+        span.set_attribute("gen_ai.operation.name", "chat")
+        span.set_attribute("gen_ai.provider.name", "openai")
+        span.set_attribute("gen_ai.request.model", model)
+        span.set_attribute("app.user_id", user_id)
+        span.set_attribute("app.prompt_version", PROMPT_VERSION)
         
         # Now, call our existing function that handles logging and metrics
         try:
@@ -324,7 +315,18 @@ def final_monitored_ai_call(prompt: str, user_id: str, model: str = "gpt-4o-mini
             raise
 ```
 
-When you run this code, OpenTelemetry will print a JSON representation of the trace to your console, showing the duration, attributes, and status of the AI call. In a production system with multiple services, traces from each service would be linked together by a common `trace_id`, giving you a complete, end-to-end view of the request.
+When you run this code, OpenTelemetry will print a JSON representation of the trace to your console, showing the duration, attributes, and status of the AI call. In a production system with multiple services, traces from each service are linked by a common `trace_id`, giving you an end-to-end view of the request. For an agent, one user request becomes a tree of spans (each model call and each tool call), which is by far the fastest way to see where a multi-step run went wrong.
+
+You rarely need to write all the spans by hand. OpenTelemetry **instrumentation libraries** exist for the OpenAI, Anthropic, and Google SDKs and for popular frameworks, and the official Anthropic SDK can emit spans itself. Specialized **LLM observability platforms** (open-source options such as Langfuse and Arize Phoenix, and commercial ones) build on these traces to show prompts, responses, token costs, and evaluation scores per request.
+
+## Measuring Quality, Not Just Uptime
+
+Logs, metrics, and traces tell you whether the system is up, fast, and affordable. They don't tell you whether the answers are *good*, which is the failure mode this chapter opened with. Quality monitoring combines several signals:
+
+-   **Cheap automatic checks on every response:** schema validation failures, refusals, empty or truncated answers, responses that should contain a citation but don't.
+-   **User feedback:** thumbs up/down, corrections, and behavioral signals such as the user immediately rephrasing the question.
+-   **Sampled evaluation:** score a small, random sample of production traffic with an LLM judge or human reviewers against your quality criteria (Chapter 24), and track the score over time as a metric.
+-   **Drift alerts:** alert when any of these move, for example after a model version, prompt, or retrieval change, or when the mix of user requests shifts.
 
 ## Practical Project: A Real-Time IoT Monitoring Dashboard
 
@@ -332,63 +334,54 @@ Let's build a simple but complete application that brings all three pillars toge
 
 ```python
 # complete_monitoring_app.py
-from fastapi import FastAPI, BackgroundTasks
-from prometheus_client import make_asgi_app
-import random
 import asyncio
+import random
+from contextlib import asynccontextmanager
 
-# Import all our previously defined functions and classes:
-# - setup_logging, setup_metrics, setup_tracing
-# - monitored_ai_call_with_logging_metrics_and_tracing (our final instrumented function)
+from fastapi import BackgroundTasks, FastAPI
+from prometheus_client import make_asgi_app
 
-# --- FastAPI Application ---
-app = FastAPI()
+# Assumes the logging, metrics, and tracing setup above, and final_monitored_ai_call.
 
-# Add Prometheus metrics endpoint to the app
-metrics_app = make_asgi_app()
-app.mount("/metrics", metrics_app)
+def analyze_reading(data: dict) -> None:
+    prompt = f"Analyze this IoT sensor data and determine if it indicates an anomaly. Data: {data}"
+    try:
+        final_monitored_ai_call(prompt, user_id=data.get("device_id", "unknown"))
+    except openai.OpenAIError:
+        pass   # already logged, counted, and recorded on the span
+
+async def simulate_iot_traffic():
+    """Generates sample readings and analyzes them, as an external source would."""
+    while True:
+        data = {
+            "device_id": f"sensor-{random.randint(1, 10)}",
+            "temperature": round(70 + random.uniform(-5, 15), 2),
+            "humidity": round(50 + random.uniform(-10, 10), 2),
+        }
+        # The OpenAI client is synchronous: run it in a thread so the event loop stays free.
+        asyncio.create_task(asyncio.to_thread(analyze_reading, data))
+        await asyncio.sleep(random.uniform(0.5, 2.0))
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    simulator = asyncio.create_task(simulate_iot_traffic())   # start background traffic
+    yield
+    simulator.cancel()                                          # stop it on shutdown
+
+app = FastAPI(lifespan=lifespan)
+app.mount("/metrics", make_asgi_app())   # Prometheus scrapes http://localhost:8000/metrics
 
 @app.post("/iot/data")
 async def process_iot_data(data: dict, background_tasks: BackgroundTasks):
-    """Receives IoT data and triggers an AI analysis in the background."""
-    device_id = data.get("device_id", "unknown")
-    
-    prompt = f"Analyze this IoT sensor data and determine if it indicates an anomaly. Data: {data}"
-    
-    # Run the expensive AI call in the background to keep the API responsive
-    background_tasks.add_task(final_monitored_ai_call, prompt, user_id=device_id)
-    
+    """Receives IoT data and schedules an AI analysis after the response is sent."""
+    background_tasks.add_task(analyze_reading, data)
     return {"status": "accepted", "message": "Data received and queued for analysis."}
 
-async def simulate_iot_traffic():
-    """A background task to continuously generate sample IoT data."""
-    while True:
-        device_id = f"sensor-{random.randint(1, 10)}"
-        data = {
-            "device_id": device_id,
-            "temperature": round(70 + random.uniform(-5, 15), 2),
-            "humidity": round(50 + random.uniform(-10, 10), 2)
-        }
-        
-        # Simulate making a request to our own API
-        # (In a real system, this would come from an external source)
-        try:
-            # We don't need the result here, just to trigger the background task
-            await process_iot_data(data, BackgroundTasks())
-        except Exception:
-            pass
-            
-        await asyncio.sleep(random.uniform(0.5, 2.0))
-
-@app.on_event("startup")
-async def startup_event():
-    # Start the simulation traffic in the background
-    asyncio.create_task(simulate_iot_traffic())
-
-# To run: uvicorn complete_monitoring_app:app --reload
-# Then visit http://localhost:8000/metrics to see your Prometheus metrics.
-# Your console will show the structured JSON logs and traces.
+# To run: uvicorn complete_monitoring_app:app
+# Then visit http://localhost:8000/metrics. The console shows the JSON logs and traces.
 ```
+
+A detail worth noticing: the simulator calls `analyze_reading` directly rather than calling the endpoint function with a hand-made `BackgroundTasks()` object. Background tasks only run when FastAPI itself handles a request; tasks added to an object you create yourself are silently never executed. Every real call to `POST /iot/data` does run its background task. (Simulated traffic is great for a demo, but remember it costs real money per call; for load testing, mock the model, Chapter 24.)
 
 With this application running, you have a complete observability solution:
 -   **Logs:** Every AI call produces a structured JSON log on the console.
@@ -399,6 +392,8 @@ You now have the visibility needed to confidently run, debug, and scale your AI 
 
 # References and Further Reading
 
+- [OpenTelemetry semantic conventions for generative AI](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
+- [Prometheus: metric and label naming (on cardinality)](https://prometheus.io/docs/practices/naming/)
 - [What You Actually Need to Monitor AI Systems in Production (Sentry, 2025)](https://blog.sentry.io/what-you-actually-need-to-monitor-ai-systems-in-production/)
 - [Chapter 12 - Observability (Azure AI in Production Guide)](https://azure.github.io/AI-in-Production-Guide/chapters/chapter_12_keeping_log_observability)
 - [Production-Ready Observability Platform for AI Systems (Medium, 2023)](https://medium.com/@bijit211987/production-ready-observability-platform-for-ai-systems-17923d19639b)

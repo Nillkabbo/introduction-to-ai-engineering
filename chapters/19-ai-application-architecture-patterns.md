@@ -44,17 +44,18 @@ Here's what a simple AI monolith using FastAPI might look like:
 ```python
 # A simple, monolithic AI application using FastAPI.
 # All logic (API, AI call, caching, database) is in one file.
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+import hashlib
+
 import openai
 import redis
-import json
-from datetime import datetime
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
 # --- All components initialized in one place ---
 app = FastAPI(title="AI Monolith")
 openai_client = openai.OpenAI()
 redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+MODEL = "gpt-6-luna"
 
 # --- Request/Response Models ---
 class AnalysisRequest(BaseModel):
@@ -66,12 +67,14 @@ class AnalysisResponse(BaseModel):
     cached: bool
 
 # --- API Endpoint ---
+# A plain `def` endpoint: FastAPI runs it in a thread pool, so the blocking
+# OpenAI and Redis clients don't stall the event loop (see Chapter 17).
 @app.post("/analyze", response_model=AnalysisResponse)
-async def analyze_text(request: AnalysisRequest):
+def analyze_text(request: AnalysisRequest):
     """Analyzes a piece of text using AI, with caching."""
     
-    # 1. Caching Logic
-    cache_key = f"analysis:{request.text}"
+    # 1. Caching Logic (hash the text: raw user text makes unbounded, unsafe keys)
+    cache_key = f"analysis:{MODEL}:{hashlib.sha256(request.text.encode()).hexdigest()}"
     cached_result = redis_client.get(cache_key)
     if cached_result:
         print("Cache Hit!")
@@ -84,16 +87,13 @@ async def analyze_text(request: AnalysisRequest):
     print("Cache Miss. Calling AI...")
     # 2. AI Logic
     try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a concise analyst."},
-                {"role": "user", "content": f"Analyze this: {request.text}"}
-            ]
-        )
-        ai_analysis = response.choices[0].message.content
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"AI service unavailable: {e}")
+        ai_analysis = openai_client.responses.create(
+            model=MODEL,
+            instructions="You are a concise analyst.",
+            input=f"Analyze this: {request.text}",
+        ).output_text
+    except openai.OpenAIError:
+        raise HTTPException(status_code=503, detail="AI service unavailable")
     
     # 3. Database Logic (Simplified)
     # In a real app, you would save the analysis to a database here.
@@ -124,7 +124,7 @@ graph TD
     D --> G[AI Provider API];
 ```
 -   **API Gateway:** The single entry point for all client requests. It routes traffic to the appropriate service.
--   **AI Processing Service:** A dedicated service whose only job is to make AI API calls. It can be scaled up with more powerful GPU instances without affecting other services.
+-   **AI Processing Service:** A dedicated service that owns all model calls: prompts, provider clients, retries, caching, and cost tracking. When it calls hosted APIs it needs no GPUs, just enough concurrency; its scaling limit is usually the provider's rate limits. Only if you self-host models does this service run on GPU machines, and then isolating it from the rest of the system matters even more.
 -   **Data Service:** Manages all interactions with the database.
 -   **Caching Service:** A centralized cache (like Redis) used by other services.
 
@@ -170,14 +170,14 @@ AI applications generate and consume a wide variety of data types, and a one-siz
 -   **Vector Databases (e.g., ChromaDB, Pinecone):** Essential for storing and searching **embeddings**. They are optimized for finding the "nearest neighbors" in high-dimensional space, powering semantic search and recommendation engines.
 -   **Time-Series Databases (e.g., InfluxDB, TimescaleDB):** Specifically designed for handling timestamped data like IoT sensor readings or application metrics, making time-based queries incredibly fast.
 
-A mature AI architecture will often use several of these databases together, leveraging each for its specific strengths.
+A mature AI architecture may use several of these databases together. But every additional database is another system to operate, secure, back up, and keep consistent, so start with fewer. PostgreSQL covers a surprising amount on its own: relational data, JSONB documents, vector search through the `pgvector` extension, and time series through TimescaleDB. A common, pragmatic path is "Postgres plus Redis" first, adding a specialized store only when you have measured that Postgres can't meet a specific need.
 
 ## Configuration Management for AI Systems
 
 AI applications have more complex configuration needs than traditional software. You need to manage:
 -   API keys for multiple providers (securely!).
--   Model names (`gpt-4o-mini`, `claude-3-5-sonnet`, etc.).
--   Model parameters (`temperature`, `max_tokens`).
+-   Model names (`gpt-6-luna`, `claude-sonnet-5-5`, etc.), which change several times a year as providers release and retire models.
+-   Model parameters (reasoning effort, output limits, and sampling settings where supported).
 -   **Prompts:** Prompts are a form of source code! They need to be versioned, tested, and dynamically updated without redeploying your application.
 -   Feature flags to A/B test different models or prompts.
 
@@ -185,71 +185,91 @@ A robust configuration system should be:
 -   **Centralized:** A single source of truth (e.g., a Git repository, Consul, or a dedicated config service).
 -   **Hierarchical:** Allow for default settings with environment-specific overrides (e.g., `development`, `staging`, `production`).
 -   **Dynamic:** Allow for changes to be loaded without restarting the application.
--   **Secure:** Encrypt sensitive values like API keys.
+-   **Secure:** Keep API keys out of config files entirely; load them from a secrets manager (Chapter 22).
 
 Let's use Pydantic and YAML files to build a simple but powerful configuration manager.
 
 ```python
 # config_manager.py
-from pydantic import BaseModel, Field
-import yaml
 from pathlib import Path
+from typing import Literal
+
+import yaml
+from pydantic import BaseModel, model_validator
 
 # Define the structure of our configs with Pydantic
-class ModelConfig(BaseModel):
-    provider: str
-    temperature: float = Field(0.7, ge=0, le=2.0)
-    max_tokens: int = 2048
+class ModelProfile(BaseModel):
+    provider: Literal["openai", "anthropic", "google"]
+    model: str                                   # the provider's model ID
+    reasoning_effort: Literal["low", "medium", "high"] = "medium"
+    max_output_tokens: int = 4096
 
 class PromptConfig(BaseModel):
+    version: str
     template: str
-    model_config_name: str # Link to a model configuration
+    model_profile: str                           # name of a ModelProfile
 
 class Config(BaseModel):
-    models: dict[str, ModelConfig]
+    models: dict[str, ModelProfile]
     prompts: dict[str, PromptConfig]
 
-# The manager loads and validates config files
+    @model_validator(mode="after")
+    def prompts_reference_known_models(self):
+        for name, prompt in self.prompts.items():
+            if prompt.model_profile not in self.models:
+                raise ValueError(f"Prompt '{name}' references unknown model profile '{prompt.model_profile}'")
+        return self
+
 class ConfigManager:
+    """Loads every YAML file in a directory and validates the merged result."""
     def __init__(self, config_dir: str = "./config"):
         self.config_path = Path(config_dir)
         self.config = self._load_config()
 
     def _load_config(self) -> Config:
-        full_config = {}
-        for file_path in self.config_path.glob("*.yaml"):
-            with open(file_path, 'r') as f:
-                # Merge YAML files into one dictionary
-                full_config.update(yaml.safe_load(f))
-        
-        # Validate the entire configuration against our Pydantic model
-        return Config(**full_config)
+        merged: dict = {}
+        for file_path in sorted(self.config_path.glob("*.yaml")):
+            data = yaml.safe_load(file_path.read_text()) or {}
+            for section, entries in data.items():          # merge per section, not per file
+                merged.setdefault(section, {}).update(entries)
+        return Config.model_validate(merged)               # fails fast, with a clear error, on bad config
 
     def get_prompt(self, name: str) -> PromptConfig:
         return self.config.prompts[name]
 
-    def get_model(self, name: str) -> ModelConfig:
+    def get_model(self, name: str) -> ModelProfile:
         return self.config.models[name]
-
-# Example config/models.yaml:
-# ---
-# precise_gpt:
-#   provider: openai
-#   temperature: 0.1
-# creative_claude:
-#   provider: anthropic
-#   temperature: 0.8
-
-# Example config/prompts.yaml:
-# ---
-# summarize_report:
-#   template: "Summarize this report concisely: {report_text}"
-#   model_config_name: precise_gpt
-# brainstorm_ideas:
-#   template: "Brainstorm three innovative ideas for {topic}"
-#   model_config_name: creative_claude
 ```
-This pattern separates your prompts and model configurations from your application logic, allowing for easy updates and experiments.
+
+The YAML files mirror the schema (each file contributes to the top-level `models` and `prompts` sections):
+
+```yaml
+# config/models.yaml
+models:
+  fast_and_cheap:
+    provider: openai
+    model: gpt-6-luna
+    reasoning_effort: low
+  deep_analysis:
+    provider: anthropic
+    model: claude-opus-5-5
+    reasoning_effort: high
+```
+
+```yaml
+# config/prompts.yaml
+prompts:
+  summarize_report:
+    version: "2026-10-01"
+    template: "Summarize this report concisely: {report_text}"
+    model_profile: fast_and_cheap
+  root_cause_analysis:
+    version: "2026-09-15"
+    template: "Find the most likely root cause of this incident: {incident}"
+    model_profile: deep_analysis
+```
+
+This pattern separates prompts and model choices from application logic. Because the config is validated at startup, a typo (an unknown profile name, a missing model ID) stops the deployment instead of failing on the first user request. Version each prompt and record the version in your logs (Chapter 23), so you can tell which prompt produced which output. Teams that change prompts often go further, with a prompt registry or the prompt-management features of LLM observability platforms, but a validated, version-controlled YAML file is an excellent start.
 
 ## Complete Architecture: A Scalable IoT Analytics Platform
 

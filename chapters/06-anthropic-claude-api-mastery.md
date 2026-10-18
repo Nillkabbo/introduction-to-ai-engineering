@@ -1,27 +1,30 @@
 # Chapter 6: Mastering the Anthropic Claude API
 
-While OpenAI's GPT models are a fantastic entry point into the world of AI, a skilled developer knows that having multiple tools in their toolkit is essential. Anthropic's family of Claude models offers a powerful alternative, known for its strong reasoning capabilities, large context windows, and a focus on creating helpful, harmless, and honest AI systems.
+While OpenAI's GPT models are a fantastic entry point into the world of AI, a skilled developer knows that having multiple tools in the toolkit is essential. Anthropic's Claude models are a strong alternative, known for careful instruction following, long-document analysis, coding, and agentic tool use.
 
-This chapter is your complete guide to mastering the Claude API. We will cover everything from your first API call to building sophisticated applications that leverage Claude's unique strengths in document analysis, vision, and tool use. By understanding how to work with both OpenAI and Anthropic, you'll be able to choose the best model for any given task.
+This chapter is your guide to the Claude API. We will cover everything from your first API call to applications that use Claude's strengths in document analysis, vision, and tool use. Knowing both OpenAI and Anthropic (and Google, in the next chapter) lets you choose the best model for each task, and avoid depending on a single vendor.
 
 ### Learning Objectives
 
 By the end of this chapter, you will be able to:
 
--   Make your first successful Claude API call and understand its core differences from OpenAI's API.
--   Craft powerful and detailed system prompts to precisely control Claude's behavior.
--   Analyze long documents and complex images using Claude's superior context and vision capabilities.
--   Implement Claude's "tool use" functionality to give your AI access to external functions.
--   Build a complete IoT fleet management system that uses visual diagnostics.
--   Compare the different Claude models and make informed decisions about when to use each.
+-   Make your first Claude API call and understand its core differences from OpenAI's API.
+-   Read Claude's responses correctly, including when the model thinks before answering.
+-   Write detailed system prompts to precisely control Claude's behavior.
+-   Analyze long documents, PDFs, and images.
+-   Implement Claude's tool use, including parallel tool calls.
+-   Reduce cost with prompt caching, and get schema-valid JSON with structured outputs.
+-   Choose between Claude models (and between providers) for a given task.
+
+> **Version note.** This chapter reflects the `anthropic` Python SDK 1.x and Claude models as of October 2026. Model IDs used here: `claude-opus-5-5` (the default and most capable Opus model), `claude-sonnet-5-5` (faster and cheaper), and `claude-haiku-5-5` (the cheapest and fastest). Older IDs such as `claude-3-5-sonnet-20240620` have been retired and no longer work.
 
 ## Your First Claude API Call: A New Dialect
 
-Interacting with Claude will feel familiar yet distinct. The core concepts of roles and messages are the same, but the API structure has its own "dialect."
+Interacting with Claude will feel familiar yet distinct. The core concepts of roles and messages are the same, but the API has its own "dialect."
 
 ### The Absolute Minimum
 
-First, ensure you have the `anthropic` library installed and an API key from the Anthropic console.
+First, install the `anthropic` library and create an API key in the Anthropic Console. Store it in the `ANTHROPIC_API_KEY` environment variable (or your `.env` file).
 
 ```bash
 pip install anthropic
@@ -32,137 +35,139 @@ Here is the "Hello, World!" of the Claude API:
 ```python
 import anthropic
 
-# Initialize the client using an environment variable for your key
-client = anthropic.Anthropic(api_key="YOUR_ANTHROPIC_API_KEY")
+# The client reads ANTHROPIC_API_KEY from the environment. Never hard-code keys.
+client = anthropic.Anthropic()
 
 message = client.messages.create(
-    model="claude-3-5-sonnet-20240620",
-    max_tokens=100,
+    model="claude-opus-5-5",
+    max_tokens=16000,
     messages=[
         {"role": "user", "content": "Hello, Claude!"}
     ]
 )
 
-# The response content is a list; we typically access the first text block.
-print(message.content[0].text)
+# The response content is a list of blocks. Print the text blocks.
+for block in message.content:
+    if block.type == "text":
+        print(block.text)
 ```
 
 Let's break down the key differences from the OpenAI API:
--   The client is `anthropic.Anthropic()`.
--   The core method is `client.messages.create()`.
--   You **must** specify `max_tokens`.
--   The model name is specific to Claude (e.g., `claude-3-5-sonnet-20240620`).
--   The response text is located at `message.content[0].text`.
+-   The client is `anthropic.Anthropic()` and the core method is `client.messages.create()`.
+-   You **must** specify `max_tokens`. On current models this budget also covers Claude's internal thinking, so don't set it too low; a small value can cut the answer off (`message.stop_reason == "max_tokens"`).
+-   The response's `content` is a **list of blocks** of different types: `thinking`, `text`, `tool_use`, and so on. Current Claude models think before answering by default, so the first block is often a `thinking` block. Always select blocks by their `type`; never assume `content[0]` is text.
 
 ### A Reusable Claude Function
 
-Let's formalize this into a secure and reusable function.
+Let's turn this into a reusable function with a small helper for extracting text.
 
 ```python
 import anthropic
-import os
 from dotenv import load_dotenv
 
-# Load your API key securely from a .env file
 load_dotenv()
-claude_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+claude_client = anthropic.Anthropic()
+CLAUDE_MODEL = "claude-opus-5-5"
 
-def ask_claude(prompt: str) -> str:
-    """Sends a single prompt to Claude and returns the response."""
+def text_of(message) -> str:
+    """Joins the text blocks of a Claude response."""
+    return "".join(block.text for block in message.content if block.type == "text")
+
+def ask_claude(prompt: str, system: str | None = None) -> str:
+    """Sends a single prompt to Claude and returns the response text."""
+    kwargs = {"system": system} if system else {}
     try:
         message = claude_client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=512,
-            messages=[{"role": "user", "content": prompt}]
+            model=CLAUDE_MODEL,
+            max_tokens=16000,
+            messages=[{"role": "user", "content": prompt}],
+            **kwargs,
         )
-        return message.content[0].text
-    except Exception as e:
-        return f"An error occurred with the Anthropic API: {e}"
+    except anthropic.RateLimitError:
+        return "Rate limited; try again shortly."
+    except anthropic.APIConnectionError:
+        return "Network error reaching the Anthropic API."
+    except anthropic.APIStatusError as e:
+        return f"Anthropic API error (HTTP {e.status_code})."
+    if message.stop_reason == "refusal":
+        # Safety classifiers can decline a request (HTTP 200, no answer text).
+        return "The model declined this request."
+    return text_of(message)
 
-# Let's test it
-explanation = ask_claude("In simple terms, what makes the Claude 3.5 Sonnet model special?")
-print(f"Claude's Response: {explanation}")
+print(ask_claude("In one paragraph, what is the difference between MQTT and CoAP?"))
 ```
+
+### Controlling Thinking with Effort
+
+On current Claude models, thinking is adaptive: Claude decides how much to think. You control the overall depth, and therefore cost and latency, with the `effort` setting:
+
+```python
+message = claude_client.messages.create(
+    model=CLAUDE_MODEL,
+    max_tokens=16000,
+    output_config={"effort": "low"},   # low | medium | high | xhigh | max
+    messages=[{"role": "user", "content": "Classify this alert as Power, Connectivity, or Sensor: 'Battery at 3%'"}],
+)
+print(text_of(message))
+```
+
+Use `low` for simple, high-volume tasks like classification or extraction, and `high` or above for hard reasoning, planning, and coding. Sampling parameters such as `temperature` are not accepted on the newest models; as with OpenAI's reasoning models, you get predictable output by constraining it (fixed labels, structured outputs) rather than by turning down randomness.
 
 ## Mastering Claude's System Prompts
 
-One of Claude's standout features is its exceptional adherence to detailed **system prompts**. While OpenAI uses a `system` role within the `messages` list, Claude has a dedicated `system` parameter. This often leads to more reliable behavior and personality control.
+Claude follows detailed **system prompts** closely. Where OpenAI's Chat Completions puts the system message inside the message list, Claude takes a dedicated `system` parameter.
 
 ```python
-def create_claude_specialist(system_prompt: str, user_prompt: str) -> str:
-    """Creates a specialized Claude assistant using a detailed system prompt."""
-    message = claude_client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=1024,
-        system=system_prompt,  # The dedicated system parameter
-        messages=[
-            {"role": "user", "content": user_prompt}
-        ]
-    )
-    return message.content[0].text
-
-# Define a detailed persona for an IoT diagnostic engineer
 iot_expert_prompt = """
 You are an expert IoT (Internet of Things) diagnostic engineer with 15 years of field experience. You are methodical, cautious, and practical.
 
-When a user describes a problem, follow these steps precisely:
+When a user describes a problem, follow these steps:
 1.  Acknowledge the user's problem.
-2.  Ask at least two clarifying questions to gather more specific information about the device, environment, or symptoms.
-3.  Based on the initial description, provide 2-3 of the most likely root causes, ordered from most probable to least probable.
-4.  For each potential cause, suggest a simple, safe diagnostic step the user can take.
-5.  Conclude by advising the user to proceed with caution and report back with their findings.
+2.  Ask at least two clarifying questions about the device, environment, or symptoms.
+3.  Based on the initial description, give the 2-3 most likely root causes, from most to least probable.
+4.  For each potential cause, suggest a simple, safe diagnostic step.
+5.  Conclude by asking the user to report back with their findings.
 
-Never suggest a solution without first asking questions. Prioritize safety and data integrity above all else.
+Prioritize safety and data integrity above all else.
 """
 
 user_problem = "A dozen of my temperature sensors in the warehouse suddenly went offline."
-
-# Get the expert diagnosis
-diagnosis = create_claude_specialist(iot_expert_prompt, user_problem)
-print(diagnosis)
+print(ask_claude(user_problem, system=iot_expert_prompt))
 ```
 
-The output from this prompt will be remarkably structured and will follow the prescribed steps, showcasing Claude's strength in adhering to complex instructions.
+The output will follow the prescribed structure. Two prompting tips that matter more with current models than with older ones: explain *why* a rule exists (Claude generalizes better from reasons than from bare commands), and avoid shouting ("NEVER", "MUST" in capitals). Modern models follow calm, clear instructions well, and over-emphatic rules tend to be over-applied.
 
 ## Conversations and Long-Context Analysis
 
-Claude's conversation flow is similar to OpenAI's—you build and manage the history. However, Claude models, particularly Sonnet and Opus, boast enormous context windows (200,000 tokens), making them ideal for analyzing entire documents or long conversation transcripts.
+Claude's conversation flow is like OpenAI's: you build and send the history. Current Claude models have context windows of up to one million tokens, enough to analyze entire manuals, contracts, or long transcripts in a single request.
 
-Let's create a chatbot that can "read" a document and then answer questions about it.
+Let's create a bot that "reads" a document and then answers questions about it.
 
 ```python
 class DocumentAnalyzerBot:
     def __init__(self, document_text: str):
-        self.document = document_text
         self.system_prompt = f"""
-You are an expert document analysis assistant. You have been provided with a document.
-Answer the user's questions based *only* on the information contained within the following document.
-If the answer is not in the document, say 'That information is not available in the provided document.'
+You are a document analysis assistant. Answer the user's questions using only the document below.
+If the answer is not in the document, say "That information is not available in the provided document."
 
---- DOCUMENT START ---
-{self.document}
---- DOCUMENT END ---
+<document>
+{document_text}
+</document>
 """
-        self.conversation_history = []
+        self.history: list[dict] = []
 
     def ask(self, user_question: str) -> str:
-        # Add the user's question to the conversation history
-        self.conversation_history.append({"role": "user", "content": user_question})
-        
+        self.history.append({"role": "user", "content": user_question})
         message = claude_client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=1024,
+            model=CLAUDE_MODEL,
+            max_tokens=16000,
             system=self.system_prompt,
-            messages=self.conversation_history
+            messages=self.history,
         )
-        
-        claude_response = message.content[0].text
-        # Add Claude's response to the history for follow-up questions
-        self.conversation_history.append({"role": "assistant", "content": claude_response})
-        
-        return claude_response
+        answer = text_of(message)
+        self.history.append({"role": "assistant", "content": answer})
+        return answer
 
-# Simulate a long IoT device manual
 device_manual = """
 Product Manual: SmartSense T-1000 Temperature Sensor
 Section 1: Installation. Mount the sensor away from direct heat sources.
@@ -171,169 +176,215 @@ Section 3: Connectivity. Connects via Zigbee 3.0. A flashing blue light indicate
 Section 4: Troubleshooting. If readings are inaccurate, perform a recalibration cycle by holding the reset button for 10 seconds. If the device is unresponsive, replace the batteries.
 """
 
-# Create an analyzer bot with the manual as its knowledge base
 analyzer = DocumentAnalyzerBot(device_manual)
-
 print("Bot:", analyzer.ask("How do I connect my new sensor to the network?"))
 print("\nBot:", analyzer.ask("What kind of battery does it use?"))
 print("\nBot:", analyzer.ask("What is the warranty period?"))
 ```
 
-The bot correctly answers the first two questions based on the provided text and correctly states that the warranty information is not available.
+The bot answers the first two questions from the text and should report that the warranty information is not available. Wrapping the document in XML-style tags (`<document>…</document>`) helps the model separate your instructions from the material it is analyzing.
 
-## Multimodal Mastery: Vision and Tool Use
+### Prompt Caching: Don't Pay Full Price for the Same Document Twice
 
-Claude 3.5 Sonnet is a state-of-the-art multimodal model, excelling at interpreting visual information and using tools.
+In the bot above, the whole manual is re-sent with every question. For a real manual that might be 100,000 tokens per call. **Prompt caching** lets the API reuse the processed prefix of a prompt across calls: cached input is billed at a small fraction of the normal input price and is processed faster.
 
-### Vision: Analyzing Images
+```python
+message = claude_client.messages.create(
+    model=CLAUDE_MODEL,
+    max_tokens=16000,
+    cache_control={"type": "ephemeral"},   # cache the prompt prefix automatically
+    system=analyzer.system_prompt,
+    messages=[{"role": "user", "content": "Summarize the troubleshooting section."}],
+)
+print(message.usage.cache_creation_input_tokens, message.usage.cache_read_input_tokens)
+```
 
-Claude can analyze images provided as base64-encoded strings. This is perfect for visual diagnostics.
+The first call writes the cache; follow-up calls within the cache lifetime (five minutes by default, refreshed on each hit) read from it. Caching matches the *prefix* exactly, so keep stable content (system prompt, documents, tool definitions) first and put changing content (the user's question, timestamps) last. Also note that prefixes below a minimum size (roughly 1,000 to 4,000 tokens depending on the model) are not cached at all. Chapter 21 discusses caching across providers.
+
+## Multimodal: Documents, Vision, and Tool Use
+
+### PDFs and Images
+
+Claude can read PDFs directly, including their tables, charts, and scanned pages, as well as images. Pass them as content blocks, before your text question.
 
 ```python
 import base64
 
-def analyze_iot_dashboard(image_path: str) -> str:
-    """Sends an image of an IoT dashboard to Claude for analysis."""
-    
-    # Read the local image file and encode it
-    with open(image_path, "rb") as image_file:
-        image_data = base64.b64encode(image_file.read()).decode("utf-8")
-        
-    prompt = "You are an IoT monitoring expert. Analyze this dashboard screenshot. Summarize the overall system status and identify any devices or metrics that require immediate attention."
-    
+def analyze_pdf(pdf_path: str, question: str) -> str:
+    with open(pdf_path, "rb") as f:
+        pdf_data = base64.standard_b64encode(f.read()).decode("utf-8")
     message = claude_client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=1024,
+        model=CLAUDE_MODEL,
+        max_tokens=16000,
         messages=[{
             "role": "user",
             "content": [
-                {"type": "text", "text": prompt},
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "image/png", # Or image/jpeg, etc.
-                        "data": image_data,
-                    },
-                },
+                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_data}},
+                {"type": "text", "text": question},
             ],
-        }]
+        }],
     )
-    return message.content[0].text
+    return text_of(message)
 
-# To test this, you would need an image file named 'dashboard.png'
-# For example: print(analyze_iot_dashboard('dashboard.png'))
+def analyze_iot_dashboard(image_path: str, media_type: str = "image/png") -> str:
+    """Sends a screenshot of an IoT dashboard to Claude for analysis."""
+    with open(image_path, "rb") as f:
+        image_data = base64.standard_b64encode(f.read()).decode("utf-8")
+    message = claude_client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=16000,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_data}},
+                {"type": "text", "text": "Summarize the overall system status and identify any devices or metrics that need immediate attention."},
+            ],
+        }],
+    )
+    return text_of(message)
+
+# print(analyze_pdf("sensor_manual.pdf", "List every safety warning in this manual."))
+# print(analyze_iot_dashboard("dashboard.png"))
 ```
+
+Images can also be passed by URL (`"source": {"type": "url", "url": "https://..."}`), and large files can be uploaded once with the Files API and referenced by ID.
 
 ### Tool Use: Claude's Function Calling
 
-Claude's "tool use" is its equivalent of OpenAI's function calling. The workflow is very similar: you describe tools, the model requests to use one, you execute it, and you send the result back.
-
-Let's build an IoT assistant with a tool to get live device data.
+Claude's "tool use" is its equivalent of OpenAI's function calling. The loop is the same: describe the tools, Claude requests one or more calls, you execute them, send the results back, and repeat until Claude answers.
 
 ```python
 import json
 
-# This is our actual Python function (the "tool")
-def get_live_device_status(device_id: str) -> str:
+def get_live_device_status(device_id: str) -> dict:
     """A dummy function to simulate fetching live device data."""
-    print(f"--- TOOL EXECUTED: get_live_device_status for {device_id} ---")
+    print(f"--- TOOL EXECUTED: get_live_device_status({device_id}) ---")
     if device_id == "TEMP-042":
-        return json.dumps({"status": "online", "temperature": "22.5°C", "battery": "88%"})
-    return json.dumps({"status": "offline", "error": "Device not found"})
+        return {"status": "online", "temperature": "22.5°C", "battery": "88%"}
+    return {"status": "unknown", "error": f"Device {device_id} not found"}
 
-def iot_tool_bot(user_prompt: str):
+TOOL_FUNCTIONS = {"get_live_device_status": get_live_device_status}
+
+CLAUDE_TOOLS = [{
+    "name": "get_live_device_status",
+    "description": "Get the live status of a specific IoT device by its ID. Use this whenever the user asks about a device's current state.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"device_id": {"type": "string", "description": "The device ID, e.g. 'TEMP-042'"}},
+        "required": ["device_id"],
+        "additionalProperties": False,
+    },
+    "strict": True,   # guarantees the tool input matches the schema
+}]
+
+def iot_tool_bot(user_prompt: str, max_turns: int = 5) -> str:
     messages = [{"role": "user", "content": user_prompt}]
-    
-    # Define the tool for Claude
-    tools = [{
-        "name": "get_live_device_status",
-        "description": "Get the live, up-to-the-second status of a specific IoT device by its ID.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"device_id": {"type": "string", "description": "The unique ID of the device, e.g., 'TEMP-042'"}},
-            "required": ["device_id"],
-        },
-    }]
 
-    # Step 1: First call to Claude
-    response = claude_client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=1024,
-        tools=tools,
-        messages=messages
-    )
-    
-    # Check if Claude wants to use a tool
-    if response.stop_reason != "tool_use":
-        return response.content[0].text
-        
-    # Step 2: Claude wants to use a tool. Execute it.
-    # The tool use request is typically the last item in the response content list
-    tool_use = next(c for c in response.content if c.type == "tool_use")
-    tool_name = tool_use.name
-    tool_input = tool_use.input
-    
-    print(f"Claude wants to call tool '{tool_name}' with arguments: {tool_input}")
-    
-    if tool_name == "get_live_device_status":
-        tool_result = get_live_device_status(**tool_input)
-    else:
-        tool_result = "Error: Unknown tool."
+    for _ in range(max_turns):
+        response = claude_client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=16000,
+            tools=CLAUDE_TOOLS,
+            messages=messages,
+        )
+        if response.stop_reason != "tool_use":
+            return text_of(response)
 
-    # Step 3: Send the tool's result back to Claude
-    messages.append({"role": "assistant", "content": response.content})
-    messages.append({
-        "role": "user",
-        "content": [{
-            "type": "tool_result",
-            "tool_use_id": tool_use.id,
-            "content": tool_result,
-        }]
-    })
+        # Keep Claude's full turn (including thinking and tool_use blocks) in the history.
+        messages.append({"role": "assistant", "content": response.content})
 
-    final_response = claude_client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=1024,
-        tools=tools,
-        messages=messages
-    )
-    return final_response.content[0].text
+        # Claude may request several tools at once; answer all of them in ONE user message.
+        tool_results = []
+        for block in response.content:
+            if block.type != "tool_use":
+                continue
+            function = TOOL_FUNCTIONS.get(block.name)
+            if function is None:
+                tool_results.append({"type": "tool_result", "tool_use_id": block.id,
+                                     "content": f"Unknown tool: {block.name}", "is_error": True})
+                continue
+            result = function(**block.input)
+            tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": json.dumps(result)})
+        messages.append({"role": "user", "content": tool_results})
 
-print(iot_tool_bot("What is the live status of device TEMP-042?"))
+    return "Stopped: too many tool-calling turns."
+
+print(iot_tool_bot("What is the live status of devices TEMP-042 and HUM-007?"))
 ```
 
-## When to Choose Claude vs. OpenAI
+Notice the details that matter in production:
+-   **Every `tool_use` block gets a `tool_result`** with the matching `tool_use_id`, and all results go back in a single user message.
+-   **Failures are reported, not hidden.** `is_error: True` tells Claude the call failed so it can adjust.
+-   **The loop is bounded** by `max_turns`.
 
-Now that you're familiar with both APIs, how do you choose?
+The SDK also includes a tool runner (`client.beta.messages.tool_runner`) that runs this loop for you; writing it by hand once is the best way to understand what it does.
 
-| Use Case                                  | Recommended Model | Why?                                                                      |
-| ----------------------------------------- | ----------------- | ------------------------------------------------------------------------- |
-| **Long Document Analysis** (e.g., PDFs, reports) | **Claude**        | Superior large context window (200K tokens) handles entire documents easily.  |
-| **Complex Reasoning & Strategy**          | **Claude**        | Often produces more nuanced, structured, and thoughtful responses.            |
-| **Code Generation & Technical Tasks**     | **OpenAI (GPT-4o)** | Generally faster and highly proficient at writing and debugging code.          |
-| **Cost-Sensitive, High-Volume Tasks**     | **OpenAI (GPT-4o mini)** | Tends to be more cost-effective for simple, high-frequency API calls.       |
-| **Visual Analysis of Charts & Diagrams**  | **Claude**        | Excels at detailed interpretation of complex visual data like graphs and UIs. |
-| **Strict Persona & Behavior Control**       | **Claude**        | Adherence to detailed system prompts is exceptionally reliable.           |
-| **Fast, General-Purpose Chat**            | **Either**        | Both offer excellent models for general chat; test for your specific needs.  |
+### Structured Outputs
 
-**A good strategy:** Use `gpt-4o-mini` for fast, cheap, general tasks, and `claude-3-5-sonnet` for tasks requiring deep reasoning, long-context analysis, or strict instruction following.
+When you need machine-readable output rather than prose, ask for JSON that matches a schema and let the API enforce it:
+
+```python
+from pydantic import BaseModel
+from typing import Literal
+
+class AlertTriage(BaseModel):
+    device_id: str
+    category: Literal["Power", "Connectivity", "Sensor", "Security"]
+    urgent: bool
+
+result = claude_client.messages.parse(
+    model=CLAUDE_MODEL,
+    max_tokens=16000,
+    messages=[{"role": "user", "content": "Triage this alert: 'GW-01 battery at 4%, shutting down in 10 minutes.'"}],
+    output_format=AlertTriage,
+)
+print(result.parsed_output)
+```
+
+Chapter 11 covers structured outputs across all providers in depth.
+
+## Choosing a Model (and a Provider)
+
+Within Claude, the trade-off is the usual one between capability, speed, and cost:
+
+| Model | Use it for |
+| --- | --- |
+| `claude-opus-5-5` | Hard reasoning, complex agents and coding, high-stakes analysis. The default choice. |
+| `claude-sonnet-5-5` | High-volume production work that still needs strong reasoning, at lower cost and latency. |
+| `claude-haiku-5-5` | Simple, latency-sensitive, high-volume tasks: classification, extraction, routing. |
+
+Before switching to a cheaper model for cost reasons, try the more capable model at lower `effort`; it is often cheaper overall than a weaker model that needs retries.
+
+Choosing *between providers* is less about fixed strengths and more about measurement. In 2026, OpenAI, Anthropic, and Google all offer reasoning models, million-token contexts, vision, tool use, and structured outputs, and their relative strengths shift with every release. Decide with criteria rather than reputation:
+
+1.  **Quality on your task**, measured on your own examples (Chapter 24).
+2.  **Cost per successful task**, not per token: a model that needs fewer retries can be cheaper even at a higher price.
+3.  **Latency** requirements, including time to first token.
+4.  **Features you depend on** (for example a specific built-in tool, batch processing, or data-residency options).
+5.  **Compliance and data handling**: retention policies, regional processing, and contractual terms.
+
+Building a thin abstraction over providers (Chapter 8) keeps you free to switch as the answers change.
 
 ## Conclusion
 
-You have now mastered the essentials of the Anthropic Claude API. You've seen how its architecture differs slightly from OpenAI's but enables powerful and unique capabilities.
+You now have the essentials of the Anthropic Claude API. Its structure differs from OpenAI's in small but important ways.
 
 You've learned to:
--   Interact with the Claude API using the `messages.create` endpoint.
--   Leverage detailed `system` prompts for precise behavioral control.
--   Build conversational bots that can analyze entire documents.
--   Use Claude's state-of-the-art vision capabilities for visual diagnostics.
--   Implement Claude's "tool use" to connect your AI to live data and functions.
+-   Call Claude with `messages.create`, and read responses block by block.
+-   Control thinking depth and cost with `effort`.
+-   Use detailed `system` prompts for precise behavioral control.
+-   Analyze long documents and PDFs, and cut repeated-context costs with prompt caching.
+-   Use Claude's vision capabilities for visual diagnostics.
+-   Implement tool use that handles parallel calls and errors.
+-   Get schema-valid JSON with structured outputs.
 
-By adding Claude to your developer toolkit, you've significantly expanded your ability to tackle a wider range of AI challenges. You can now choose the best model for the job, blending the strengths of different AI providers to create more powerful and effective applications.
+By adding Claude to your toolkit, you can choose the best model for each job and blend providers to build more capable and resilient applications.
 
 # References and Further Reading
 
-- Anthropic Claude API Documentation. https://docs.anthropic.com/
+- Claude API documentation. https://platform.claude.com/docs/
+- Claude models overview (current IDs, context windows, pricing). https://platform.claude.com/docs/en/about-claude/models/overview
+- Prompt caching. https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+- Anthropic Python SDK. https://github.com/anthropics/anthropic-sdk-python
+- Building effective agents (Anthropic, 2024). https://www.anthropic.com/engineering/building-effective-agents
 - Build with Claude (Anthropic Academy). https://www.anthropic.com/learn/build-with-claude
-- Claude 3.5 Sonnet API Tutorial: Quick Start Guide. https://medium.com/ai-agent-insider/claude-3-5-sonnet-api-tutorial-quick-start-guide-anthropic-api-3f35ce56c59a

@@ -44,18 +44,19 @@ Now, let's count the tokens in a few different strings.
 ```python
 import tiktoken
 
-# Load the encoder for a specific model. Different models have different tokenizers.
-encoder = tiktoken.encoding_for_model("gpt-4o-mini")
+# o200k_base is the tokenizer used by OpenAI's recent model families.
+# (tiktoken.encoding_for_model() only knows model names that existed when your
+# tiktoken version was released, so naming the encoding directly is more robust.)
+encoder = tiktoken.get_encoding("o200k_base")
 
 text_to_analyze = "This is a simple sentence."
 
 # The .encode() method converts our string into a list of token integers.
 tokens = encoder.encode(text_to_analyze)
-token_count = len(tokens)
 
 print(f"Text: '{text_to_analyze}'")
-print(f"Token count: {token_count}")
-print(f"Token IDs: {tokens}")
+print(f"Token count: {len(tokens)}")
+print(f"Tokens: {[encoder.decode([t]) for t in tokens]}")
 ```
 
 **Output:**
@@ -63,27 +64,31 @@ print(f"Token IDs: {tokens}")
 ```
 Text: 'This is a simple sentence.'
 Token count: 6
-Token IDs: [2128, 318, 257, 3334, 16934, 13]
+Tokens: ['This', ' is', ' a', ' simple', ' sentence', '.']
 ```
 
-The text was broken into six tokens. Now, let's build a simple cost calculator to see the financial implications.
+The text was broken into six tokens. Notice that the spaces belong to the tokens that follow them. Different providers use different tokenizers, so the same text can be a slightly different number of tokens on Claude or Gemini.
+
+> **Estimating vs. measuring.** A local tokenizer like `tiktoken` is great for quick estimates. For exact numbers, use what the provider reports: every API response includes a `usage` object with the billed input and output tokens, and providers offer counting endpoints you can call *before* sending a request (for example `client.responses.input_tokens.count(model=..., input=...)` on OpenAI and `client.messages.count_tokens(...)` on Anthropic).
+
+Now, let's build a simple cost calculator to see the financial implications.
 
 ```python
-# A pricing example for gpt-4o-mini (prices change, check OpenAI's site for current rates)
-# Let's assume input costs $0.15 per 1 million tokens.
-COST_PER_1000_INPUT_TOKENS = 0.00015
+# Example price: $0.10 per 1 million input tokens.
+# Prices change often; always check the provider's pricing page.
+PRICE_PER_MILLION_INPUT_TOKENS = 0.10
 
 def calculate_prompt_cost(text: str):
-    """Estimates the cost of sending a prompt to the OpenAI API."""
+    """Estimates the input cost of sending a prompt."""
     token_count = len(encoder.encode(text))
-    cost = (token_count / 1000) * COST_PER_1000_INPUT_TOKENS
+    cost = token_count / 1_000_000 * PRICE_PER_MILLION_INPUT_TOKENS
     
     print(f"Text: '{text}'")
     print(f"Tokens: {token_count}")
     print(f"Estimated Cost: ${cost:.8f}")
     print("-" * 20)
 
-# Compare a vague prompt with a specific, concise one.
+# Compare a wordy prompt with a concise one.
 vague_prompt = "Please help me, my IoT device is not working as I expected and I believe there might be an issue with the sensor readings."
 concise_prompt = "Help interpret an abnormal IoT sensor reading."
 
@@ -91,9 +96,9 @@ calculate_prompt_cost(vague_prompt)
 calculate_prompt_cost(concise_prompt)
 ```
 
-You'll see that the vague, wordy prompt can be five to six times more expensive than the concise one, even though they are asking for the same thing.
+The wordy prompt is roughly three times as many tokens as the concise one. On a single call the difference is a fraction of a cent; across millions of calls, or when the extra text is a long document pasted into every request, it adds up.
 
-> **Key Takeaway:** As an AI developer, your first optimization challenge is "token engineering." Be as concise as possible in your prompts without losing necessary context. Every token saved is money in your pocket.
+> **Key Takeaway:** Tokens are the unit of cost and latency. Remove text that doesn't help the model, but never cut context it actually needs: a confused model that needs a retry costs more than a few extra tokens. In practice, the big savings come from controlling *large* inputs (conversation history, retrieved documents) and output length, not from shaving words off a one-line instruction. Chapter 21 covers this in depth.
 
 ## Embeddings: How AI Understands Meaning
 
@@ -109,7 +114,7 @@ Embeddings do the same thing, but for meaning. They place words in a high-dimens
 -   The vector for "happy" will be very close to the vector for "joyful."
 -   The vector for "car" will be far away from the vector for "planet."
 
-This allows the AI to understand relationships between words. Even more powerfully, the *relationship* between vectors is also meaningful. The vector from "man" to "woman" is very similar to the vector from "king" to "queen."
+This allows the AI to understand relationships between words. In classic word-embedding models (like word2vec), even the *relationship* between vectors was meaningful: the vector from "man" to "woman" is very similar to the vector from "king" to "queen." Modern embedding models work on whole sentences and paragraphs, which is what makes them useful for search.
 
 ### Creating Your First Embedding
 
@@ -157,8 +162,10 @@ def find_most_similar(query: str, options: list[str]) -> str:
     query_embedding = response.data[0].embedding
     option_embeddings = [item.embedding for item in response.data[1:]]
     
-    # 3. Calculate the similarity between the query and each option
-    # We use cosine similarity, which is a dot product of normalized vectors.
+    # 3. Calculate the similarity between the query and each option.
+    # Cosine similarity is the dot product of normalized vectors. OpenAI's
+    # embeddings are already normalized to length 1, so a plain dot product works.
+    # For other providers, normalize first (divide each vector by its norm).
     similarities = [np.dot(query_embedding, opt_emb) for opt_emb in option_embeddings]
     
     # 4. Find the index of the highest similarity score
@@ -184,7 +191,7 @@ print(f"User's Problem: '{user_problem}'")
 print(f"Most Relevant Solution: '{best_solution}'")
 ```
 
-Notice that the user's problem doesn't contain the keywords "sunlight" or "direct." But because the *meaning* of "thermostat reading is way too high" is semantically close to the concept of an external heat source like sunlight, the embedding-based search finds the correct solution. This is far more powerful than a simple keyword search.
+Notice that the user's problem shares almost no keywords with any of the solutions, so a keyword search would find nothing. An embedding search compares meaning instead: "the reading is way too high" is close to ideas like an external heat source or a miscalibrated sensor, so one of those two solutions should rank first. Which one wins depends on the embedding model, and that's the honest lesson: semantic search *ranks* candidates by similarity; it doesn't *reason* about which fix is correct. In real systems you retrieve the top few candidates and let a model or a person decide (Chapter 27).
 
 ## Context Windows: The AI's Limited Memory
 
@@ -192,50 +199,43 @@ The final core concept is the **context window**. This is arguably the most impo
 
 An LLM's context window is its **short-term memory**. It's the maximum number of tokens the model can consider at one time when generating a response. Everything—the system prompt, the user prompts, and the assistant's own past responses—must fit within this window.
 
-If a conversation exceeds the context window, the model starts to "forget" the earliest messages.
+The model itself has no memory between calls. Each API request is stateless, and "memory" is simply the history *you* send. If a request exceeds the context window, the API rejects it with an error; nothing is silently forgotten. Deciding what to keep, drop, or summarize is your application's job.
 
-### Context Window Sizes of Popular Models
+### Context Window Sizes
 
-The size of the context window is a key feature that differentiates models. Larger windows mean the AI can "remember" longer conversations or process larger documents.
+The size of the context window is a key feature that differentiates models. As of October 2026, roughly one million tokens (on the order of 2,000 pages of text) is common across the flagship models from OpenAI, Anthropic, and Google, while some smaller or older models offer 128K–400K. Check the provider's model page for the exact limit, and note that the maximum *output* length is a separate, much smaller limit.
 
-| Model           | Context Window (Tokens) | Approximate Pages of Text |
-| --------------- | ----------------------- | ------------------------- |
-| `gpt-4o-mini`     | 128,000                 | ~250 pages                |
-| `gpt-4-turbo`     | 128,000                 | ~250 pages                |
-| `claude-3-5-sonnet` | 200,000                 | ~400 pages                |
-| `gemini-1.5-pro`  | 1,000,000               | ~2000 pages               |
+A huge window does not make context free:
 
-Even with large windows, managing context is crucial for performance and cost. Sending the entire history of a long conversation in every API call is slow and expensive.
+-   **Cost and latency grow with input size.** You pay for every token you send, on every call.
+-   **Quality can degrade with very long inputs.** Models are better at using information near the beginning and end of a long prompt than information buried in the middle (the "lost in the middle" effect). Sending only the relevant parts usually gives better answers than sending everything.
 
 ### A Simple Memory Management Strategy
 
-A common strategy for managing long conversations is to implement a "sliding window" of memory. We always keep the system prompt, but we start removing the oldest user/assistant messages once we approach the token limit.
+A common strategy for managing long conversations is a "sliding window" of memory. We always keep the system prompt, but drop the oldest user/assistant messages once the history exceeds a token budget. The budget should leave room for the model's reply.
 
 ```python
-def manage_conversation_history(messages: list[dict], max_tokens: int = 120000) -> list[dict]:
-    """Ensures the conversation history fits within the token limit."""
-    
-    # Always keep the system message if it exists
-    if messages and messages[0]['role'] == 'system':
-        system_message = messages.pop(0)
-    else:
-        system_message = None
+def trim_conversation_history(messages: list[dict], max_input_tokens: int = 100_000) -> list[dict]:
+    """Returns a copy of the history that fits within the token budget."""
+    def count(msg: dict) -> int:
+        return len(encoder.encode(msg["content"]))
 
-    # Calculate token usage and remove old messages until it fits
-    current_tokens = sum(len(encoder.encode(msg['content'])) for msg in messages)
-    while current_tokens > max_tokens:
-        # Remove the oldest message
-        removed_message = messages.pop(0)
-        current_tokens -= len(encoder.encode(removed_message['content']))
+    system = [m for m in messages[:1] if m["role"] == "system"]
+    history = messages[len(system):]
 
-    # Add the system message back to the beginning
-    if system_message:
-        messages.insert(0, system_message)
-        
-    return messages
+    budget = max_input_tokens - sum(count(m) for m in system)
+    kept: list[dict] = []
+    # Walk backwards from the newest message, keeping as many as fit.
+    for msg in reversed(history):
+        if count(msg) > budget:
+            break
+        kept.append(msg)
+        budget -= count(msg)
+
+    return system + list(reversed(kept))
 ```
 
-This function provides a basic safety net to prevent your API calls from failing due to an oversized context.
+This returns a new list instead of modifying the caller's, and always keeps the most recent messages. More advanced strategies summarize older turns instead of discarding them, or store facts in a database and retrieve them when relevant (Chapter 27). Some providers now also offer server-side helpers for this, such as Anthropic's automatic context compaction.
 
 ## What You've Learned
 
@@ -243,7 +243,7 @@ You now understand the three fundamental concepts that govern how you will build
 
 1.  **Tokens are the currency.** Every interaction has a cost. Be concise to save money.
 2.  **Embeddings capture meaning.** This allows for powerful semantic search and relevance ranking, far beyond simple keyword matching.
-3.  **Context windows are the memory.** All models have a finite memory, and you must manage it to handle long conversations and large documents.
+3.  **Context windows bound the working memory.** The model only knows what you send in each request, the window caps how much that can be, and you are responsible for deciding what goes in.
 
 These three ideas—cost, meaning, and memory—are the levers you will constantly be pulling and balancing as an AI developer. In the next chapter, we will get our hands dirty and set up a professional development environment so you can start building real applications on this foundation.
 
@@ -253,3 +253,5 @@ These three ideas—cost, meaning, and memory—are the levers you will constant
 - What Are AI Tokens and Context Windows (And Why Should You Care)? https://simple.ai/p/tokens-and-context-windows
 - From Tokens to Context Windows: Simplifying AI Jargon. Technology Policy Institute. https://techpolicyinstitute.org/publications/artificial-intelligence/from-tokens-to-context-windows-simplifying-ai-jargon/
 - AI Tokens Explained - What They Are and Why They Matter. https://zenvanriel.nl/ai-engineer-blog/ai-tokens-explained-what-they-are-and-why-they-matter/
+- Lost in the Middle: How Language Models Use Long Contexts (Liu et al., 2023). https://arxiv.org/abs/2307.03172
+- tiktoken (OpenAI's tokenizer library). https://github.com/openai/tiktoken

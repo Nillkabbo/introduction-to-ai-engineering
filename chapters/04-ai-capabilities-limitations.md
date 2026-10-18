@@ -30,6 +30,12 @@ from dotenv import load_dotenv
 # Assumes your OPENAI_API_KEY is set in a .env file
 load_dotenv()
 client = openai.OpenAI()
+MODEL = os.getenv("OPENAI_MODEL", "gpt-6-luna")
+
+def ask(prompt: str, instructions: str | None = None) -> str:
+    """A small helper we'll reuse throughout this chapter."""
+    response = client.responses.create(model=MODEL, instructions=instructions, input=prompt)
+    return response.output_text
 
 def demonstrate_text_abilities():
     """Demonstrates AI's core text processing capabilities."""
@@ -42,12 +48,8 @@ def demonstrate_text_abilities():
     }
 
     for task_name, prompt in tasks.items():
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}]
-        )
         print(f"--- {task_name} ---")
-        print(f"AI Response: {response.choices[0].message.content}\n")
+        print(f"AI Response: {ask(prompt)}\n")
 
 demonstrate_text_abilities()
 ```
@@ -63,21 +65,18 @@ def demonstrate_pattern_recognition():
     log_data = """
     10:00 - sensor_01 - temp: 72.1
     10:05 - sensor_01 - temp: 72.3
-    10:10 - sensor_01 - temp: 95.8  <-- Anomaly
+    10:10 - sensor_01 - temp: 95.8
     10:15 - sensor_01 - temp: 72.5
     10:20 - sensor_01 - temp: 72.4
     """
     
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": f"Analyze these logs and identify any anomalies:\n{log_data}"}]
-    )
+    analysis = ask(f"Analyze these logs and identify any anomalies:\n{log_data}")
     print("--- Pattern Recognition ---")
-    print(f"AI Analysis: {response.choices[0].message.content}")
+    print(f"AI Analysis: {analysis}")
 
 demonstrate_pattern_recognition()
 ```
-The AI correctly identifies the temperature spike because it deviates significantly from the established pattern.
+The AI identifies the temperature spike because it deviates sharply from the surrounding readings. (Note that we don't label the anomaly in the data; doing so would test reading, not detection.) For five readings this is impressive; for a million readings a statistical rule (for example, a z-score threshold) is faster, cheaper, and more reliable. A good pattern is to let code flag candidates and use the LLM to explain them.
 
 ### 3. Generating Code
 
@@ -88,13 +87,8 @@ def demonstrate_code_generation():
     """Demonstrates AI writing a Python function from a description."""
     prompt = "Write a Python function called `is_safe_temperature` that takes a temperature in Celsius and returns True if it's between 0 and 100, and False otherwise."
     
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "system", "content": "You are a helpful coding assistant that writes clean Python code."},
-                  {"role": "user", "content": prompt}]
-    )
     print("--- Code Generation ---")
-    print(response.choices[0].message.content)
+    print(ask(prompt, instructions="You are a helpful coding assistant that writes clean Python code."))
 
 demonstrate_code_generation()
 ```
@@ -106,75 +100,75 @@ Understanding an AI's weaknesses is more important than knowing its strengths. B
 
 ### 1. Mathematical and Precise Logical Reasoning
 
-LLMs are not calculators or formal logic engines. They are text predictors. When asked to do math, they are essentially guessing what sequence of numbers *looks like* the correct answer based on the training data. This often leads to errors, especially with multi-digit numbers.
+LLMs are not calculators or formal logic engines. They produce answers by predicting tokens, not by executing arithmetic. Modern reasoning models are far better at math than their predecessors (a current flagship will almost always get `127 × 83` right), but "almost always" is not good enough for a billing system, a dosage calculation, or a control loop. Errors become more likely with long numbers, many steps, or large tables of figures, and when they happen they look just as confident as correct answers.
 
 ```python
-def demonstrate_math_weakness():
-    """Shows AI's unreliability with precise calculations."""
-    math_problem = "What is 127 multiplied by 83?"
+def demonstrate_math_check():
+    """Compares the model's arithmetic with Python's."""
+    math_problem = "What is 48,213 multiplied by 7,919? Reply with only the number."
     
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": math_problem}]
-    )
-    print("--- Math Weakness ---")
+    print("--- Math Check ---")
     print(f"Problem: {math_problem}")
-    print(f"AI's Answer: {response.choices[0].message.content}")
-    print(f"Correct Answer: {127 * 83}")
-    print("⚠️ Never trust an LLM for precise calculations!")
+    print(f"AI's Answer: {ask(math_problem)}")
+    print(f"Correct Answer: {48_213 * 7_919:,}")
 ```
 
-**The Safeguard: AI for Logic, Code for Math**
+**The Safeguard: AI for Language, Code for Math**
 
-A robust pattern is to use the AI to understand the *intent* of the math problem and translate it into code, which you then execute reliably.
+A robust pattern is to use the AI to understand the *intent* of the problem and translate it into an expression, which you then evaluate with ordinary, deterministic code. Never pass model output to `eval()`: a model can be tricked (Chapter 22) into producing `__import__('os').system(...)` just as easily as `127 * 83`. Instead, use an evaluator that only understands arithmetic:
 
 ```python
-def safe_math_solver(problem: str):
-    """Uses AI to generate Python code for a math problem, then executes it."""
-    
-    # Ask the AI to write the code, not solve the problem.
-    code_generation_prompt = f"Convert the following math problem into a single line of Python code that can be evaluated: '{problem}'"
-    
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "system", "content": "You are a programmer. Only return raw Python code."},
-                  {"role": "user", "content": code_generation_prompt}]
-    )
-    
-    code_to_execute = response.choices[0].message.content.strip()
-    print(f"AI generated this code: `{code_to_execute}`")
-    
-    # CRITICAL SECURITY NOTE: Using eval() on AI-generated code is extremely dangerous
-    # in a real application. This is for demonstration only. A production system
-    # would require a secure sandbox or a safer parsing library.
+import ast
+import operator
+
+ALLOWED_OPERATORS = {
+    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+    ast.Div: operator.truediv, ast.USub: operator.neg,
+}  # No ** on purpose: 9**9**9 would hang the process.
+
+def evaluate_arithmetic(expression: str) -> float:
+    """Evaluates +, -, *, / on numbers only. Anything else raises ValueError."""
+    def walk(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in ALLOWED_OPERATORS:
+            return ALLOWED_OPERATORS[type(node.op)](walk(node.left), walk(node.right))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in ALLOWED_OPERATORS:
+            return ALLOWED_OPERATORS[type(node.op)](walk(node.operand))
+        raise ValueError(f"Disallowed expression: {ast.dump(node)}")
+    return walk(ast.parse(expression, mode="eval").body)
+
+def safe_math_solver(problem: str) -> str:
+    """Uses AI to translate a word problem into arithmetic, then computes it in code."""
+    expression = ask(
+        f"Convert this problem into a single arithmetic expression: '{problem}'",
+        instructions="Return only the expression, using numbers and + - * / ( ). No words, no code fences.",
+    ).strip()
+    print(f"AI generated this expression: `{expression}`")
+
     try:
-        result = eval(code_to_execute)
-        return f"Safely calculated result: {result}"
-    except Exception as e:
-        return f"Error executing AI-generated code: {e}"
+        return f"Calculated result: {evaluate_arithmetic(expression)}"
+    except (ValueError, SyntaxError, ZeroDivisionError) as e:
+        return f"Could not evaluate the AI's expression: {e}"
 
 print(safe_math_solver("What is 127 multiplied by 83?"))
 ```
-This hybrid approach leverages the strengths of both systems: the LLM's language understanding and Python's computational reliability.
+This hybrid approach uses the strengths of both systems: the LLM's language understanding and Python's computational reliability. For anything more complex than arithmetic, the same idea scales up as **tool calling** (Chapter 14), where the model asks your code to run a calculator, a database query, or a script in a proper sandbox.
 
 ### 2. Access to Real-Time Information
 
-LLMs are trained on a static dataset. Their knowledge has a "cutoff date." They cannot access the internet, check today's weather, or tell you the current time.
+LLMs are trained on a static dataset. Their knowledge has a "cutoff date," and a bare model call has no way to check today's weather, your database, or the current time.
 
 ```python
 def demonstrate_timeliness_limit():
     """Shows AI's lack of real-time knowledge."""
     prompt = "What is the current temperature in New York City?"
     
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
     print("--- Timeliness Limitation ---")
-    print(f"AI's Response: {response.choices[0].message.content}")
-    print("⚠️ The AI is stating its limitation, but a less advanced model might invent an answer.")
+    print(f"AI's Response: {ask(prompt)}")
+    print("⚠️ A good model will state its limitation; a weaker one may invent an answer.")
 ```
-The only way to give an AI real-time information is to fetch it yourself from an external API and provide it as context in the prompt.
+To give a model current information, you must supply it: either fetch the data yourself and put it in the prompt, or give the model a **tool** it can call (Chapter 14). Most providers now offer built-in web search tools, so "the model can't access the internet" is really "the model can only access what you deliberately connect it to."
 
 ## The Specter of AI Hallucinations
 
@@ -189,16 +183,11 @@ def demonstrate_hallucination():
     # The "Raspberry Pi Model Z" does not exist.
     prompt = "What are the key features of the Raspberry Pi Model Z, released in 2023?"
     
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    print("--- Hallucination Example ---")
+    print("--- Hallucination Probe ---")
     print(f"Prompt (about a fictional product): {prompt}")
-    print(f"AI's Hallucinated Response: {response.choices[0].message.content}")
-    print("🚨 All these details are fabricated! This is a classic hallucination.")
+    print(f"AI's Response: {ask(prompt)}")
 ```
-Notice how the AI doesn't say "I don't know." It confidently invents specifications, creating a convincing lie. This is why you must **never blindly trust specific, factual claims from an LLM without verification.**
+Current frontier models will often (correctly) say they know of no such product, especially for well-known brands. Hallucinations have not disappeared, though; they have moved to less obvious territory: specific numbers, citations and URLs, details of niche products, internal company facts, and anything the question *presupposes* is true. A weaker model, or a more obscure topic, will happily invent specifications that sound entirely plausible. That is why you must **never blindly trust specific, factual claims from an LLM without verification**, and why grounding answers in sources you supply (Chapter 27) is the main defence.
 
 ## Building Safeguards into Your Applications
 
@@ -206,20 +195,16 @@ As responsible developers, we must build systems that anticipate and mitigate th
 
 ### 1. Requesting Confidence Levels
 
-A simple but effective technique is to instruct the AI to state its own confidence level. While the AI's self-assessment isn't foolproof, a low-confidence score is a strong signal for the user (or your application) to be cautious.
+A simple technique is to instruct the AI to state its own confidence level and explain it. Treat the number with caution: self-reported confidence is poorly calibrated (models are often confidently wrong), so it is useful as a prompt for the model to surface caveats and as a rough triage signal, not as a probability you can rely on.
 
 ```python
-def get_response_with_confidence(prompt: str):
-    """Instructs the AI to include a confidence score in its response."""
-    
-    system_message = "After your main response, add a new line with 'Confidence: [1-10]' where 1 is very uncertain and 10 is very certain. Briefly explain your confidence score."
-    
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "system", "content": system_message},
-                  {"role": "user", "content": prompt}]
+def get_response_with_confidence(prompt: str) -> str:
+    """Instructs the AI to include a confidence note in its response."""
+    instructions = (
+        "After your main response, add a line 'Confidence: low|medium|high' and one sentence "
+        "on what you are unsure about and what should be checked."
     )
-    return response.choices[0].message.content
+    return ask(prompt, instructions=instructions)
 
 print(get_response_with_confidence("What is the average power consumption of a LoRaWAN gateway?"))
 ```
@@ -235,23 +220,18 @@ def self_verifying_ai_call(prompt: str):
     """A two-step process where one AI call checks the output of another."""
     
     # Step 1: Get the initial answer
-    initial_response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    ).choices[0].message.content
+    initial_response = ask(prompt)
     
-    # Step 2: Ask another AI to identify claims that need verification
+    # Step 2: Ask a second call to identify claims that need verification
     verification_prompt = f"""
     Please review the following text and list any specific factual claims (like numbers, dates, names, or technical specs) that should be verified from an external source.
 
-    Text to review: "{initial_response}"
+    <text_to_review>
+    {initial_response}
+    </text_to_review>
     """
     
-    verification_response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "system", "content": "You are a helpful fact-checking assistant."},
-                  {"role": "user", "content": verification_prompt}]
-    ).choices[0].message.content
+    verification_response = ask(verification_prompt, instructions="You are a careful fact-checking assistant.")
 
     return {
         "original_answer": initial_response,
@@ -261,7 +241,7 @@ def self_verifying_ai_call(prompt: str):
 result = self_verifying_ai_call("What are the main differences between Zigbee and Z-Wave for home automation?")
 print(json.dumps(result, indent=2))
 ```
-This process forces a level of "introspection" and helps flag potentially hallucinatory content for human review.
+This process helps flag claims for human review. Be clear about its limits: the second call uses the same knowledge as the first, so it is good at *finding* checkable claims but cannot *verify* them. Real verification needs an external source of truth, such as a search tool, your own database, or a document you supply.
 
 ### 3. Building a Safe Assistant Class
 
@@ -271,11 +251,11 @@ Let's encapsulate these principles into a `SmartSafeAssistant` class that automa
 import re
 
 class SmartSafeAssistant:
-    def __init__(self):
-        self.client = openai.OpenAI()
-
     def classify_question(self, question: str) -> str:
-        """A simple rule-based classifier for question types."""
+        """A deliberately simple rule-based classifier for question types.
+
+        Keyword rules are brittle; Chapter 11 shows how to classify with an LLM and a fixed label set.
+        """
         q_lower = question.lower()
         if any(keyword in q_lower for keyword in ["calculate", "what is", "multiply", "plus"]) and any(char.isdigit() for char in q_lower):
             return "math"
@@ -304,11 +284,7 @@ class SmartSafeAssistant:
         
     def _handle_general(self, question: str) -> str:
         # For general questions, we add a disclaimer.
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": question}]
-        ).choices[0].message.content
-        return response + "\n\n*Please note: For critical applications, always verify important information from an authoritative source.*"
+        return ask(question) + "\n\n*Please note: For critical applications, always verify important information from an authoritative source.*"
 
 # --- Demo of the SmartSafeAssistant ---
 assistant = SmartSafeAssistant()
@@ -331,8 +307,8 @@ This simple class demonstrates a powerful concept: building a layer of logic *ar
 
 You now have a realistic and practical understanding of what AI can and cannot do. This knowledge is your most valuable asset as an AI developer.
 
--   **Trust AI for:** Pattern matching, text generation, summarization, and creative brainstorming.
--   **Be Skeptical of AI for:** Math, real-time data, and specific, verifiable facts.
+-   **Trust AI for:** Understanding and transforming language: summarization, extraction, classification, drafting, code suggestions, and brainstorming.
+-   **Be Skeptical of AI for:** Exact computation, anything that needs current or private data you haven't supplied, and specific, verifiable facts (numbers, names, citations).
 -   **Your Strategy:** Use AI as a powerful reasoning engine and language tool, but couple it with reliable, deterministic systems (like your own code or trusted APIs) for tasks that require precision and accuracy.
 
 By embracing this mindset, you'll avoid common pitfalls and build applications that are not only intelligent but also trustworthy. You are now prepared to dive into more advanced topics, armed with the critical judgment needed to build responsibly.

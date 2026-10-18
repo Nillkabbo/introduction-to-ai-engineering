@@ -34,9 +34,10 @@ import openai
 # 1. Create a Flask application instance
 app = Flask(__name__)
 
-# 2. Initialize the OpenAI client
+# 2. Initialize the OpenAI client once, at startup
 # Assumes the OPENAI_API_KEY environment variable is set
 client = openai.OpenAI()
+MODEL = "gpt-6-luna"
 
 # 3. Define an endpoint using a route decorator
 @app.route('/ask', methods=['POST'])
@@ -67,14 +68,11 @@ def ask_ai():
 
     # 2. Call the OpenAI API
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": question}]
-        )
-        answer = response.choices[0].message.content
-    except Exception as e:
-        # Handle potential API errors
-        return jsonify({'error': f'AI service error: {str(e)}'}), 503
+        answer = client.responses.create(model=MODEL, input=question).output_text
+    except openai.OpenAIError:
+        # Log the details server-side; don't send internal error messages to clients.
+        app.logger.exception("AI call failed")
+        return jsonify({'error': 'The AI service is temporarily unavailable.'}), 503
 
     # 3. Return the AI's answer in a JSON response
     return jsonify({
@@ -107,7 +105,7 @@ Flask is great for simple projects, but for production APIs, the modern choice i
 -   **Speed:** It's one of the fastest Python web frameworks available.
 -   **Type Safety:** It uses Python's type hints and a library called Pydantic to validate incoming data automatically.
 -   **Automatic Docs:** It generates interactive API documentation (like Swagger UI) for you, which is invaluable for development.
--   **Async Support:** It's built from the ground up to support asynchronous operations, which is perfect for handling long-running AI tasks without blocking the server.
+-   **Async Support:** It's built from the ground up to support asynchronous operations, which is perfect for handling long-running AI tasks without blocking the server, *as long as you use async clients* (see the warning below).
 
 Let's rebuild our `/ask` endpoint in FastAPI.
 
@@ -142,14 +140,21 @@ These models enforce that every request to `/ai/ask` *must* have a `question` fi
 
 Now, we create the FastAPI application and endpoint. Notice how we use the Pydantic models as type hints in the function signature.
 
+> **The most common FastAPI + LLM bug.** Inside an `async def` endpoint, a call to a *synchronous* client (`openai.OpenAI()`, `anthropic.Anthropic()`) blocks the entire event loop for the seconds the model takes to respond, so every other request to that worker waits. Use the async clients (`openai.AsyncOpenAI()`, `anthropic.AsyncAnthropic()`, `genai.Client().aio`) with `await`, or define the endpoint with plain `def` so FastAPI runs it in a thread pool.
+
 ```python
+import logging
+import openai
 from fastapi import FastAPI, HTTPException
-from datetime import datetime
+
+logger = logging.getLogger(__name__)
+async_client = openai.AsyncOpenAI()
+MODEL = "gpt-6-luna"
 
 # 1. Create a FastAPI application instance
 app = FastAPI(
     title="Simple AI API",
-    description="A demonstration of a production-ready AI endpoint.",
+    description="A demonstration of an AI endpoint.",
     version="1.0.0"
 )
 
@@ -157,28 +162,18 @@ app = FastAPI(
 @app.post("/ai/ask", response_model=AIResponse)
 async def ask_ai(request: AIRequest):
     """Receives a question and returns an AI-generated answer."""
-    
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": request.question}]
-        )
-        
-        answer = response.choices[0].message.content
-        tokens = response.usage.total_tokens if response.usage else None
-        
-        return AIResponse(
-            question=request.question,
-            answer=answer,
-            tokens_used=tokens
-        )
-        
-    except Exception as e:
+        response = await async_client.responses.create(model=MODEL, input=request.question)
+    except openai.OpenAIError:
+        logger.exception("AI call failed")
         # FastAPI's HTTPException is the standard way to return error responses.
-        raise HTTPException(
-            status_code=503, 
-            detail=f"AI service error: {str(e)}"
-        )
+        raise HTTPException(status_code=503, detail="The AI service is temporarily unavailable.")
+
+    return AIResponse(
+        question=request.question,
+        answer=response.output_text,
+        tokens_used=response.usage.total_tokens if response.usage else None,
+    )
 ```
 
 To run this, save it as `main.py` and use `uvicorn`, a high-performance server:
@@ -195,31 +190,24 @@ Waiting for an AI to generate a long piece of text can be a poor user experience
 
 FastAPI makes this incredibly elegant with its `StreamingResponse` and support for async generators.
 
-First, we need a function that `yields` the AI's response in chunks. We do this by setting `stream=True` in the OpenAI API call.
+First, we need an async generator that `yield`s the AI's response as it arrives. With the async client, we iterate over the stream with `async for`, which never blocks the event loop.
 
 ```python
-import asyncio
 from typing import AsyncGenerator
 
 async def generate_streaming_response(prompt: str) -> AsyncGenerator[str, None]:
-    """Calls the OpenAI API in streaming mode and yields content chunks."""
+    """Calls the OpenAI API in streaming mode and yields text as it arrives."""
     try:
-        stream = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            stream=True
-        )
-        
-        # Iterate over the stream of chunks
-        for chunk in stream:
-            content = chunk.choices[0].delta.content
-            if content is not None:
-                yield content
-                await asyncio.sleep(0.01) # Small delay to simulate network flow
-    except Exception as e:
-        print(f"Error during stream generation: {e}")
-        yield f"An error occurred: {str(e)}"
+        stream = await async_client.responses.create(model=MODEL, input=prompt, stream=True)
+        async for event in stream:
+            if event.type == "response.output_text.delta":
+                yield event.delta
+    except openai.OpenAIError:
+        logger.exception("Streaming AI call failed")
+        yield "\n[The response was interrupted. Please try again.]"
 ```
+
+Note that once streaming has started, the HTTP status (200) has already been sent, so an error can no longer become a 503; you can only signal it inside the stream.
 
 Now, we create an endpoint that returns a `StreamingResponse`, passing our generator function to it.
 
@@ -247,7 +235,10 @@ FastAPI can handle SSE using the `sse-starlette` library.
 First, let's create an async generator that simulates monitoring an IoT device. It will periodically `yield` structured event data.
 
 ```python
+import asyncio
+import json
 import random
+from datetime import datetime
 
 async def device_event_generator() -> AsyncGenerator[dict, None]:
     """Generates simulated device status events indefinitely."""
@@ -329,48 +320,47 @@ Modern AI is multimodal. It can understand images, audio, and documents. A produ
 FastAPI makes this easy with the `UploadFile` type. Let's create an endpoint that accepts an image and uses a vision model to analyze it.
 
 ```python
-from fastapi import File, UploadFile
 import base64
+from fastapi import File, UploadFile
+
+MAX_IMAGE_BYTES = 10 * 1024 * 1024   # 10 MB
+# Magic bytes at the start of each format: don't trust the client-supplied content type alone.
+IMAGE_SIGNATURES = {"image/png": b"\x89PNG\r\n\x1a\n", "image/jpeg": b"\xff\xd8\xff"}
 
 @app.post("/analyze/image")
 async def analyze_image(file: UploadFile = File(...)):
-    """Accepts an image, sends it to a vision model for analysis."""
-    
-    # 1. Read the file content into memory
-    contents = await file.read()
-    
-    # 2. Validate file type and size (important for security)
-    if file.content_type not in ["image/jpeg", "image/png"]:
-        raise HTTPException(status_code=400, detail="Invalid image type.")
-    if len(contents) > 10 * 1024 * 1024: # 10 MB limit
-        raise HTTPException(status_code=413, detail="File size exceeds 10MB limit.")
+    """Accepts an image and sends it to a vision model for analysis."""
+    # 1. Reject wrong types before reading anything.
+    if file.content_type not in IMAGE_SIGNATURES:
+        raise HTTPException(status_code=400, detail="Only PNG and JPEG images are accepted.")
 
-    # 3. Encode the image for the API call
-    base64_image = base64.b64encode(contents).decode('utf-8')
-    
-    # 4. Call the vision model
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{
+    # 2. Read at most one byte more than the limit, so a huge upload can't exhaust memory.
+    contents = await file.read(MAX_IMAGE_BYTES + 1)
+    if len(contents) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="File size exceeds the 10 MB limit.")
+    if not contents.startswith(IMAGE_SIGNATURES[file.content_type]):
+        raise HTTPException(status_code=400, detail="File content does not match its declared type.")
+
+    # 3. Build a data URL with the real media type, and call the vision model.
+    data_url = f"data:{file.content_type};base64,{base64.b64encode(contents).decode()}"
+    response = await async_client.responses.create(
+        model=MODEL,
+        input=[{
             "role": "user",
             "content": [
-                {"type": "text", "text": "Describe this image. If it contains industrial equipment, identify any visible issues."},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-            ]
-        }]
+                {"type": "input_text", "text": "Describe this image. If it contains industrial equipment, identify any visible issues."},
+                {"type": "input_image", "image_url": data_url, "detail": "auto"},
+            ],
+        }],
     )
-    
-    return {
-        "filename": file.filename,
-        "analysis": response.choices[0].message.content
-    }
+    return {"filename": file.filename, "analysis": response.output_text}
 ```
 
-The same pattern applies to other file types. For audio, you might use OpenAI's Whisper model for transcription. For PDFs, you would use a library like `PyPDF2` to extract text before sending it to an LLM for summarization or analysis.
+The same pattern applies to other file types. For audio, use a transcription model (Chapter 5). For PDFs, current models from all three providers accept the file directly, which preserves tables, charts, and layout; if you need plain text instead (for example to index it for search, Chapter 27), extract it with a library such as `pypdf` (the maintained successor of `PyPDF2`). Whatever the type, treat uploaded content as untrusted: a document can contain hidden instructions aimed at the model (Chapter 22).
 
 ## Putting It All Together: A Live IoT Dashboard
 
-Let's combine these concepts—FastAPI, WebSockets (an alternative to SSE for two-way communication), Pydantic, and AI—to create a complete, interactive web dashboard for managing IoT devices.
+Let's combine these concepts (FastAPI, WebSockets for two-way communication, Pydantic, and AI) into the architecture of an interactive dashboard for managing IoT devices. The code below is a skeleton that shows the structure; the elided parts (`...`) are filled in with the techniques from earlier in this chapter and from Chapter 18, which builds the `ConnectionManager` class.
 
 Our system will have:
 -   A FastAPI backend.
@@ -390,8 +380,8 @@ manager = ConnectionManager() # A class to manage WebSocket connections
 
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard():
-    # Returns the HTML for the frontend page
-    # (The full HTML is provided in the chapter's source code)
+    # Returns the HTML page: a device list, an alerts panel, a chat box,
+    # and a script that opens a WebSocket to /ws (similar to the SSE client above).
     return HTMLResponse(content="...")
 
 @app.websocket("/ws")
@@ -434,10 +424,13 @@ async def websocket_endpoint(websocket: WebSocket):
 # ... (Background task to simulate device status changes and broadcast updates) ...
 ```
 
+Before exposing anything like this publicly, add authentication to the WebSocket (browsers send cookies with WebSocket requests, so check the session or a token when the connection opens), validate every incoming message, and rate-limit the AI actions per user (Chapter 18).
+
 This architecture creates a powerful, dynamic user experience. The dashboard loads, connects to the WebSocket, and receives an initial list of devices. A background task on the server simulates device activity, and whenever a device's status changes, the `manager.broadcast` function pushes the update to *every connected user's screen* in real time. When a user clicks "Diagnose," a message is sent to the server, an AI diagnosis is performed, and the resulting alert is broadcast back to everyone. This is the blueprint for modern, AI-augmented applications.
 
 # References and Further Reading
 
+- Concurrency and async/await (FastAPI documentation): https://fastapi.tiangolo.com/async/
 - How to Build an AI App: A Step-by-Step Guide (Vercel): https://vercel.com/guides/how-to-build-ai-app
 - How to Implement AI in Web Development: A Practical Guide with Real-Life Examples (DEV.to): https://dev.to/ansif_branding_84cec990b812/how-to-implement-ai-in-web-development-a-practical-guide-with-real-life-examples-4ljc
 - AI-Powered Web Applications: Building the Future with Django and TensorFlow (Medium): https://medium.com/@tarekeesa7/ai-powered-web-applications-building-the-future-with-django-and-tensorflow-4e71e83c0885

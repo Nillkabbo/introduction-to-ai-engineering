@@ -1,23 +1,23 @@
 # Chapter 10: Advanced Prompting Strategies
 
-In the last chapter, we mastered the fundamentals of prompt engineering. We learned to be specific, provide context, and use patterns like few-shot and chain-of-thought. These techniques are the bedrock of effective AI interaction and will serve you well for 80% of use cases.
+In the last chapter, we covered the fundamentals of prompt engineering: be specific, provide context, and use patterns like few-shot examples and explicit reasoning steps. These techniques are the bedrock of effective AI interaction and will serve you well for most use cases.
 
-But what about the other 20%? What happens when a problem is so complex, so ambiguous, or so high-stakes that a single, direct prompt is insufficient? This is where advanced prompting strategies come into play. These are not just different ways of asking a question; they are structured, multi-step reasoning frameworks that guide the AI to tackle complexity in a more robust and reliable way. This chapter is your introduction to thinking like an AI architect, designing not just single prompts, but entire reasoning workflows.
+But what happens when a problem is so complex, ambiguous, or high-stakes that a single prompt isn't enough? This is where advanced strategies come in. They are not different ways of phrasing a question; they are **multi-call workflows** that structure how the model explores, checks, and refines its answers. This chapter introduces the most important ones, explains what the research actually shows about each, and shows how to implement them.
+
+> **Reasoning models changed the cost-benefit math.** Many of these techniques were invented in 2022–2023 to squeeze better reasoning out of models that answered in a single pass. Today's reasoning models already explore and check internally, controlled by a reasoning-effort setting. Before building a multi-call workflow, try the simplest option first: one call to a capable model at higher reasoning effort. Use the strategies below when you need what a single call can't give you: measurable agreement, external information, independent perspectives, or verification against an outside signal. Every strategy multiplies your cost and latency, so measure whether it actually improves results on your task (Chapter 24).
 
 ### Learning Objectives
 
 By the end of this chapter, you will be able to:
 
--   Implement **Self-Consistency** to improve the reliability of AI-generated answers.
--   Use **Tree-of-Thought (ToT)** prompting to explore multiple reasoning paths for complex problems.
--   Apply the **ReAct (Reasoning and Acting)** pattern to build agents that can dynamically gather information.
--   Apply **Multi-Agent Debate** to leverage multiple AI perspectives for robust decision-making.
--   Implement **Reflexion** to create self-improving AI agents that learn from their reasoning.
--   Build sophisticated **Prompt Chains** that break down a complex task into a sequence of specialized prompts.
+-   Implement **Self-Consistency** to make answers to well-defined questions more reliable.
+-   Use **Tree-of-Thought (ToT)**-style prompting to explore multiple approaches to an open problem.
+-   Apply the **ReAct (Reasoning and Acting)** pattern to gather information step by step.
+-   Use **Multi-Agent Debate** to surface competing perspectives, and know its limits.
+-   Implement **Reflexion**-style self-improvement loops, and understand why external feedback matters.
+-   Build **Prompt Chains** that break a complex task into a sequence of focused, verifiable steps.
 
 ## The Limits of Simple Prompts
-
-Basic prompting is powerful, but it has its limits. When faced with a highly complex problem, a single prompt can lead to inconsistent or shallow analysis.
 
 Consider this complex IoT system failure:
 
@@ -30,548 +30,427 @@ A smart factory's assembly line has stopped. Key symptoms include:
 - The issue began an hour after the morning shift started.
 - No new firmware has been deployed recently.
 """
-
-# A basic prompt might give a plausible but incomplete answer,
-# potentially missing the root cause that connects all symptoms.
 ```
-A single pass from an LLM might latch onto one symptom (e.g., "network latency") and propose a solution without considering how it connects to the others. Advanced strategies are designed to overcome this by forcing a more rigorous, multi-faceted analysis.
 
-## Strategy 1: The Self-Consistency Method
+A single response might latch onto one symptom (say, the network latency) and miss the explanation that connects all of them. The strategies below give the model structured ways to explore, gather facts, and check its work.
 
-**The Idea:** If you ask one expert their opinion, you get one answer. If you ask five experts, you can find a consensus. The self-consistency method applies this logic to AI. Instead of running a prompt once, you run it multiple times with a higher `temperature` (to encourage varied responses) and then find the most common answer.
-
-This technique is incredibly effective at improving accuracy on tasks with a single correct answer, such as arithmetic or logical reasoning.
-
-### Implementing Self-Consistency
-
-Let's apply this to find the root cause of a device failure.
+We'll use one small helper throughout:
 
 ```python
 import openai
-import json
-from collections import Counter
-from typing import List, Dict, Any
 
 client = openai.OpenAI()
+MODEL = "gpt-6-luna"
 
-def self_consistency_diagnosis(problem: str, num_runs: int = 5) -> str:
-    """Runs a diagnosis prompt multiple times to find the most consistent root cause."""
-    
+def ask(prompt: str, instructions: str | None = None, effort: str = "medium") -> str:
+    response = client.responses.create(
+        model=MODEL, instructions=instructions, input=prompt, reasoning={"effort": effort}
+    )
+    return response.output_text.strip()
+```
+
+## Strategy 1: Self-Consistency
+
+**The idea:** Ask the same question several times and take the most common answer. Because the model's outputs vary from run to run, independent attempts make different mistakes, and the answer that most attempts agree on is more likely to be right. The original research (Wang et al., 2022) showed large gains on arithmetic and logic benchmarks, where each attempt reasons its own way to a short, checkable final answer.
+
+The detail that makes or breaks this technique: **you can only vote on answers you can compare.** Two free-text diagnoses are almost never identical strings, so counting them finds no consensus. Constrain the final answer to a fixed set of labels (or a number), and vote on that.
+
+```python
+from collections import Counter
+
+ROOT_CAUSES = [
+    "sensor_fault",
+    "installation_near_heat_source",
+    "calibration_error",
+    "firmware_bug",
+    "power_supply_issue",
+]
+
+def self_consistency_diagnosis(problem: str, num_runs: int = 5) -> tuple[str, float]:
+    """Samples several diagnoses and returns the majority label with its agreement rate."""
     prompt = f"""
-Analyze the following IoT issue and state the single most likely root cause.
+Diagnose the most likely root cause of this IoT issue.
+Think it through, then end your reply with a final line of the form:
+ROOT_CAUSE: <one of {ROOT_CAUSES}>
 
 Problem: {problem}
-
-Most Likely Root Cause:
 """
-    
-    responses = []
-    print(f"Running diagnosis {num_runs} times to find consensus...")
+    votes = []
+    for _ in range(num_runs):
+        reply = ask(prompt)
+        final_line = reply.strip().splitlines()[-1]
+        label = final_line.removeprefix("ROOT_CAUSE:").strip()
+        if label in ROOT_CAUSES:       # discard malformed answers instead of guessing
+            votes.append(label)
 
-    for i in range(num_runs):
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7 # Higher temperature encourages diverse reasoning paths
-        ).choices[0].message.content
-        
-        # We only care about the stated root cause for this simple example
-        root_cause = response.strip()
-        print(f"  Run {i+1} Diagnosis: {root_cause}")
-        responses.append(root_cause)
+    if not votes:
+        return "no_valid_answer", 0.0
+    label, count = Counter(votes).most_common(1)[0]
+    return label, count / num_runs
 
-    # Find the most common response using a Counter
-    if not responses:
-        return "Failed to get any valid responses."
-        
-    most_common_cause, count = Counter(responses).most_common(1)[0]
-    
-    return f"Consensus Diagnosis (agreed upon in {count}/{num_runs} runs): {most_common_cause}"
-
-# A problem where a single prompt might give different answers
-device_issue = "A smart thermostat is reading 10°F higher than the actual room temperature. It was installed last week and has the latest firmware."
-
-print(self_consistency_diagnosis(device_issue))
+device_issue = "A smart thermostat reads 10°F higher than the actual room temperature. It was installed last week and has the latest firmware."
+label, agreement = self_consistency_diagnosis(device_issue)
+print(f"Consensus: {label} ({agreement:.0%} of runs agreed)")
 ```
-While one run might suggest "faulty sensor," another might suggest "improper placement near a heat source." By running it multiple times, the most plausible answer ("improper placement" for a new installation) is likely to emerge as the consensus.
 
-**When to use it:** For high-stakes questions where accuracy is critical and there is likely a single best answer. It increases API costs but significantly improves reliability.
+The agreement rate is a useful by-product: if only 2 of 5 runs agree, the question is genuinely ambiguous, and that's a good signal to ask for more information or escalate to a human. (Chapter 11 shows how to enforce the label format with structured outputs instead of parsing the last line.)
+
+**When to use it:** Questions with a single correct, comparable answer (a category, a number, yes/no) where an error is costly. It multiplies cost by the number of runs.
 
 ## Strategy 2: Tree-of-Thought (ToT) Prompting
 
-**The Idea:** Complex problems are rarely solved in a straight line. Experts often explore several possible paths of reasoning, abandoning those that lead to dead ends and pursuing the most promising ones. Tree-of-Thought prompting simulates this process.
+**The idea:** Complex problems are rarely solved in a straight line. Experts consider several approaches, develop the promising ones, and abandon dead ends. The original Tree-of-Thoughts work (Yao et al., 2023) implemented this as a *search*: generate candidate "thoughts," score them, expand the best ones, and backtrack when a branch fails.
 
-The workflow is:
-1.  **Generate Thoughts:** Ask the AI to brainstorm several different initial approaches or lines of reasoning to solve the problem.
-2.  **Develop Thoughts:** For each initial thought, ask the AI to elaborate on it, exploring its implications and required next steps.
-3.  **Evaluate Thoughts:** Ask the AI to act as an expert critic, evaluating the developed thoughts to determine which one is the most promising.
+Full tree search is expensive and rarely needed in applications. A practical, simplified version (breadth-first with a single level) captures most of the benefit for open-ended diagnosis and planning:
 
-### Implementing a ToT Workflow
+1.  **Generate:** Brainstorm several distinct approaches.
+2.  **Develop:** Elaborate each approach independently.
+3.  **Evaluate and synthesize:** Compare the developed approaches critically and combine the best elements.
 
 ```python
+import re
+
 class TreeOfThoughtSolver:
-    def __init__(self):
-        self.client = openai.OpenAI()
-
     def solve(self, problem: str, num_paths: int = 3) -> str:
-        # 1. Generate initial thoughts (the "branches" of the tree)
-        print("--- Stage 1: Generating initial reasoning paths ---")
-        initial_thoughts = self._generate_initial_thoughts(problem, num_paths)
-        print("Initial Paths:", initial_thoughts)
+        approaches = self._generate_approaches(problem, num_paths)
+        print("Approaches:", *approaches, sep="\n- ")
 
-        # 2. Develop each thought into a more detailed plan
-        print("\n--- Stage 2: Developing each path ---")
-        developed_paths = []
-        for thought in initial_thoughts:
-            developed_paths.append(self._develop_path(problem, thought))
+        developed = [self._develop(problem, approach) for approach in approaches]
+        return self._evaluate_and_synthesize(problem, developed)
 
-        # 3. Evaluate the developed paths to find the best one
-        print("\n--- Stage 3: Evaluating paths and synthesizing a final answer ---")
-        return self._evaluate_and_synthesize(problem, developed_paths)
+    def _generate_approaches(self, problem: str, n: int) -> list[str]:
+        reply = ask(f"""
+Problem: {problem}
+List {n} distinct, high-level approaches to diagnosing this problem, one per line, no numbering.
+""", effort="low")
+        lines = [re.sub(r"^[\s\-\*\d\.\)]+", "", line).strip() for line in reply.splitlines()]
+        return [line for line in lines if line][:n]   # strip list markers; keep exactly n
 
-    def _generate_initial_thoughts(self, problem: str, num_thoughts: int) -> list[str]:
-        prompt = f"""
-Problem: "{problem}"
-Generate {num_thoughts} distinct, high-level approaches to diagnose this problem. Each approach should be a single sentence.
-"""
-        response = self.client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}]).choices[0].message.content
-        return [line.strip() for line in response.split('\n') if line.strip()]
+    def _develop(self, problem: str, approach: str) -> str:
+        return ask(f"""
+Problem: {problem}
+Approach: {approach}
+Develop this approach: the specific investigation steps, what evidence would confirm or rule it out, and its main weakness.
+""")
 
-    def _develop_path(self, problem: str, thought: str) -> str:
-        prompt = f"""
-Problem: "{problem}"
-Reasoning Path: "{thought}"
-Elaborate on this reasoning path. What are the specific steps you would take to investigate this? What are the pros and cons of this approach?
-"""
-        return self.client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}]).choices[0].message.content
+    def _evaluate_and_synthesize(self, problem: str, developed: list[str]) -> str:
+        paths = "\n\n".join(f"<path id='{i + 1}'>\n{p}\n</path>" for i, p in enumerate(developed))
+        return ask(f"""
+Problem: {problem}
 
-    def _evaluate_and_synthesize(self, problem: str, developed_paths: list[str]) -> str:
-        paths_text = "\n\n".join(f"Path {i+1}:\n{path}" for i, path in enumerate(developed_paths))
-        prompt = f"""
-You have explored several reasoning paths to solve this problem: "{problem}"
+Here are several independently developed diagnostic approaches:
+{paths}
 
-Here are the explored paths:
-{paths_text}
+Act as a critical reviewer. Which approach best explains ALL the symptoms? Point out where the others fall short,
+then produce a single prioritized action plan that keeps the strongest elements.
+""", effort="high")
 
-Now, act as an expert reviewer. Evaluate the paths and synthesize the best elements into a single, optimal action plan.
-"""
-        return self.client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}]).choices[0].message.content
-
-# Let's use ToT to solve our complex factory problem
-tot_solver = TreeOfThoughtSolver()
-solution = tot_solver.solve(complex_problem)
-print("\n--- Final ToT Solution ---")
-print(solution)
+solution = TreeOfThoughtSolver().solve(complex_problem)
+print("\n--- Final Plan ---\n", solution)
 ```
 
-**When to use it:** For complex, open-ended problems with no obvious solution. It helps avoid premature conclusions by forcing the model to consider multiple possibilities.
+Developing each approach in a *separate* call matters: each branch is explored without being anchored by the others, which is where the diversity comes from.
+
+**When to use it:** Open-ended problems with several plausible directions (diagnosis, design, planning) where premature commitment is the main risk.
 
 ## Strategy 3: ReAct (Reasoning and Acting)
 
-**The Idea:** Many problems can't be solved with existing information alone. You need to gather more data. The ReAct pattern creates a dynamic loop where the AI **reasons** about what it needs to know and then chooses an **action** (like calling a tool) to find that information.
+**The idea:** Many problems can't be solved with the information in the prompt. ReAct (Yao et al., 2022) interleaves **reasoning** ("what do I need to know next?") with **actions** (calling a tool) and **observations** (the tool's result), in a loop, until the model has enough to answer.
 
-This turns the LLM from a static knowledge base into an active agent that can interact with its environment.
-
-### Implementing a ReAct Loop
+ReAct is the conceptual ancestor of today's agents. In production you implement it with the providers' native **tool calling** (Chapters 5, 6 and 14), which handles the action format for you. The text-based version below is still worth building once, because it shows exactly what the loop does.
 
 ```python
 class ReActAgent:
-    def __init__(self, available_tools: dict):
-        self.client = openai.OpenAI()
-        self.tools = available_tools
+    ACTION_PATTERN = re.compile(r"^Action:\s*(\w+)", re.MULTILINE)
+    FINAL_PATTERN = re.compile(r"^Final Answer:\s*(.+)", re.MULTILINE | re.DOTALL)
 
-    def run(self, problem: str, max_steps: int = 5):
-        thought_history = ""
-        for i in range(max_steps):
-            print(f"\n--- ReAct Step {i+1} ---")
-            
-            # 1. Reason about the next action
-            prompt = f"""
-You are an IoT diagnostic agent. Solve the problem by reasoning and then taking an action.
-Problem: "{problem}"
-Thought History:
-{thought_history}
+    def __init__(self, tools: dict):
+        self.tools = tools
 
-Your available tools are: {list(self.tools.keys())}
+    def run(self, problem: str, max_steps: int = 6) -> str:
+        transcript = ""
+        tool_list = "\n".join(f"- {name}: {fn.__doc__}" for name, fn in self.tools.items())
 
-Thought: Analyze the current situation and decide on the next best action to take.
-Action: [Choose one tool from the list]
-"""
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini", temperature=0,
-                messages=[{"role": "user", "content": prompt}]
-            ).choices[0].message.content
-            
-            # Parse the thought and action
-            thought = response.split("Action:")[0].replace("Thought:", "").strip()
-            action = response.split("Action:")[1].strip()
-            print(f"Thought: {thought}")
-            print(f"Action: {action}")
-            
-            # 2. Execute the chosen action
-            if action in self.tools:
-                tool_result = self.tools[action]() # In a real app, you'd pass arguments
-                print(f"Observation: {tool_result}")
-                
-                # Update the history for the next loop
-                thought_history += f"Step {i+1}:\nThought: {thought}\nAction: {action}\nObservation: {tool_result}\n"
-                
-                # A simple check for a final answer
-                if "root cause is" in tool_result.lower():
-                    print("\n--- Diagnosis Complete ---")
-                    return tool_result
+        for step in range(1, max_steps + 1):
+            reply = ask(f"""
+You are an IoT diagnostic agent. Solve the problem by alternating Thought and Action steps.
+
+Problem: {problem}
+
+Available tools (they take no arguments):
+{tool_list}
+
+Respond with EITHER
+Thought: <your reasoning>
+Action: <one tool name>
+OR, once you have enough evidence,
+Thought: <your reasoning>
+Final Answer: <the root cause and recommended action>
+
+History so far:
+{transcript or "(none)"}
+""")
+            print(f"\n--- Step {step} ---\n{reply}")
+
+            final = self.FINAL_PATTERN.search(reply)
+            if final:
+                return final.group(1).strip()
+
+            action = self.ACTION_PATTERN.search(reply)
+            if action is None:
+                observation = "Invalid format. Reply with 'Action: <tool>' or 'Final Answer: ...'."
+            elif action.group(1) not in self.tools:
+                observation = f"Unknown tool '{action.group(1)}'. Choose from: {', '.join(self.tools)}."
             else:
-                print("Action not recognized. Ending loop.")
-                break
-        
-        return "Could not determine root cause within the step limit."
+                observation = self.tools[action.group(1)]()
+            print(f"Observation: {observation}")
+            transcript += f"{reply}\nObservation: {observation}\n"
 
-# --- Define some dummy tools for the demo ---
+        return "Stopped: no final answer within the step limit."
+
+# --- Dummy tools for the demo ---
 def check_network_logs():
-    return "Network logs show high latency in Zone C, starting at 09:05 AM."
-def check_motor_status():
-    return "All motors in Zone C are reporting 'offline' via the API."
-def review_maintenance_schedule():
-    return "No recent maintenance was scheduled for Zone C. However, a power grid switchover occurred at 09:02 AM."
+    """Network latency and connectivity events for Zone C."""
+    return "High latency in Zone C starting at 09:05 AM; switch SW-C1 logged repeated power-cycle events."
 
-# --- Run the ReAct agent ---
-tools = {
+def check_motor_status():
+    """Current status of the Zone C conveyor motors."""
+    return "All Zone C motors report 'offline'. Last heartbeat 09:02 AM. Motor controllers show undervoltage faults."
+
+def review_maintenance_log():
+    """Recent maintenance and facility events."""
+    return "No maintenance scheduled. Facilities log: power grid switchover to backup feed at 09:02 AM."
+
+agent = ReActAgent({
     "check_network_logs": check_network_logs,
     "check_motor_status": check_motor_status,
-    "review_maintenance_schedule": review_maintenance_schedule,
-}
-
-react_agent = ReActAgent(tools)
-react_agent.run(complex_problem)
+    "review_maintenance_log": review_maintenance_log,
+})
+print("\nResult:", agent.run(complex_problem))
 ```
 
-**When to use it:** For dynamic problems where the AI needs to gather information incrementally to solve a problem. This is the foundation of autonomous agents.
+The robustness details are what turn a fragile demo into a working loop: the format is parsed with patterns rather than `split()`, format errors and unknown tools are fed back as observations so the model can correct itself, there is an explicit **finish** action, and the loop has a hard step limit.
+
+**When to use it:** Problems where the model must gather information incrementally. This is the foundation of autonomous agents (Part 4).
 
 ## Strategy 4: Multi-Agent Debate
 
-**The Idea:** When faced with a complex decision, humans often seek multiple perspectives. Multi-Agent Debate applies this principle by creating multiple AI agents with different viewpoints, expertise, or reasoning styles, and having them debate the problem to reach a consensus.
+**The idea:** Several "agents" (here, the same model with different role prompts) analyze a problem, read each other's arguments, and revise their positions over a few rounds; a final step synthesizes the result. The original work (Du et al., 2023) reported gains in factuality and reasoning.
 
-This technique reduces bias, improves robustness, and often leads to more nuanced and well-considered solutions than a single AI perspective.
-
-The key insight behind Multi-Agent Debate is that different perspectives can reveal different aspects of a problem. An optimistic agent might focus on opportunities and benefits, while a conservative agent might highlight risks and potential problems. A practical agent might focus on implementation feasibility and resource constraints.
-
-By having these agents debate, we can:
-- **Reduce bias**: No single perspective dominates the decision
-- **Improve robustness**: Multiple viewpoints catch different potential issues
-- **Enhance creativity**: Different perspectives can lead to novel solutions
-- **Build consensus**: The debate process helps identify the strongest arguments
-
-The debate typically follows this structure:
-1. **Initial Analysis**: Each agent provides their perspective on the problem
-2. **Debate Rounds**: Agents respond to each other's viewpoints and refine their positions
-3. **Synthesis**: A final agent combines the best elements from all perspectives
-
-### Implementing Multi-Agent Debate
+Keep your expectations calibrated. Later studies found that, for the same total compute, debate often does no better than simpler methods such as self-consistency, and agents built on the same model share the same blind spots, so debate does not remove bias, it only surfaces different framings. Where debate shines is **decision support**: making trade-offs explicit (opportunity vs. risk vs. feasibility) so a human can see the strongest case for each side.
 
 ```python
 class MultiAgentDebate:
-    def __init__(self):
-        self.client = openai.OpenAI()
-        
-    def create_agents(self, problem: str) -> dict:
-        """Create agents with different perspectives and expertise."""
-        
-        agents = {
-            "optimist": {
-                "role": "Optimistic Analyst",
-                "perspective": "Focus on opportunities and positive outcomes. Consider best-case scenarios and potential benefits.",
-                "expertise": "Risk assessment and opportunity identification"
-            },
-            "pessimist": {
-                "role": "Conservative Analyst", 
-                "perspective": "Focus on risks and potential problems. Consider worst-case scenarios and potential downsides.",
-                "expertise": "Risk mitigation and contingency planning"
-            },
-            "pragmatist": {
-                "role": "Practical Engineer",
-                "perspective": "Focus on practical implementation and feasibility. Consider resource constraints and real-world limitations.",
-                "expertise": "Implementation feasibility and resource optimization"
-            }
+    AGENTS = {
+        "optimist": "an Opportunity Analyst. Focus on benefits, upside, and best-case outcomes.",
+        "skeptic": "a Risk Analyst. Focus on risks, failure modes, hidden costs, and worst-case outcomes.",
+        "pragmatist": "a Practical Engineer. Focus on feasibility, resources, timelines, and real-world constraints.",
+    }
+
+    def run_debate(self, problem: str, rounds: int = 2) -> str:
+        views = {
+            name: ask(f"Problem: {problem}\n\nGive your initial analysis and recommendation.",
+                      instructions=f"You are {role}")
+            for name, role in self.AGENTS.items()
         }
-        
-        return agents
-    
-    def run_debate(self, problem: str, rounds: int = 3) -> str:
-        """Run a structured debate between multiple agents."""
-        
-        agents = self.create_agents(problem)
-        debate_history = []
-        
-        print("=== Multi-Agent Debate Session ===")
-        print(f"Problem: {problem}\n")
-        
-        # Initial analysis from each agent
-        initial_views = {}
-        for agent_id, agent_info in agents.items():
-            prompt = f"""
-You are a {agent_info['role']} with expertise in {agent_info['expertise']}.
-Your perspective: {agent_info['perspective']}
 
+        for round_number in range(1, rounds + 1):
+            previous = dict(views)   # everyone responds to the SAME previous round
+            for name, role in self.AGENTS.items():
+                others = "\n\n".join(f"<{other}>\n{view}\n</{other}>"
+                                     for other, view in previous.items() if other != name)
+                views[name] = ask(f"""
 Problem: {problem}
 
-Provide your initial analysis and recommendations based on your perspective.
-"""
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7
-            ).choices[0].message.content
-            
-            initial_views[agent_id] = response
-            print(f"--- {agent_info['role']} Initial View ---")
-            print(response)
-            print()
-        
-        # Debate rounds
-        for round_num in range(rounds):
-            print(f"=== Debate Round {round_num + 1} ===")
-            
-            for agent_id, agent_info in agents.items():
-                # Create context from other agents' views
-                other_views = {k: v for k, v in initial_views.items() if k != agent_id}
-                other_views_text = "\n\n".join([f"{agents[k]['role']}: {v}" for k, v in other_views.items()])
-                
-                prompt = f"""
-You are a {agent_info['role']} with expertise in {agent_info['expertise']}.
-Your perspective: {agent_info['perspective']}
+Your previous position:
+{previous[name]}
 
+The other analysts said:
+{others}
+
+Respond to their strongest points. Concede where they are right, rebut where they are wrong,
+and state your updated recommendation.
+""", instructions=f"You are {role}")
+            print(f"Round {round_number} complete.")
+
+        positions = "\n\n".join(f"<{name}>\n{view}\n</{name}>" for name, view in views.items())
+        return ask(f"""
 Problem: {problem}
 
-Other agents' views:
-{other_views_text}
+Final positions after a structured debate:
+{positions}
 
-Your previous view:
-{initial_views[agent_id]}
+Write a balanced recommendation: the key benefits, the key risks and how to mitigate them,
+the practical constraints, and a clear decision with the conditions under which it should be revisited.
+""", effort="high")
 
-Based on the other agents' perspectives, provide your updated analysis. 
-Consider their points, address any concerns, and refine your recommendations.
-"""
-                
-                response = self.client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.7
-                ).choices[0].message.content
-                
-                initial_views[agent_id] = response
-                print(f"--- {agent_info['role']} Updated View ---")
-                print(response)
-                print()
-        
-        # Final synthesis
-        all_views = "\n\n".join([f"{agents[k]['role']}: {v}" for k, v in initial_views.items()])
-        
-        synthesis_prompt = f"""
-Problem: {problem}
-
-After a structured debate, here are the final positions of three expert agents:
-
-{all_views}
-
-Synthesize these perspectives into a comprehensive, balanced solution that addresses:
-1. The opportunities and benefits identified
-2. The risks and concerns raised  
-3. The practical implementation considerations
-
-Provide a final recommendation that incorporates the best elements from all perspectives.
-"""
-        
-        final_synthesis = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": synthesis_prompt}],
-            temperature=0.3
-        ).choices[0].message.content
-        
-        return final_synthesis
-
-# Example usage
-debate_system = MultiAgentDebate()
-complex_decision = "Should we implement a new AI-powered predictive maintenance system in our factory? Consider costs, benefits, risks, and implementation challenges."
-
-debate_result = debate_system.run_debate(complex_decision)
-print("=== Final Synthesis ===")
-print(debate_result)
+decision = "Should we implement an AI-powered predictive maintenance system in our factory? Consider costs, benefits, risks, and implementation challenges."
+print(MultiAgentDebate().run_debate(decision))
 ```
 
-**When to use it:** For complex decisions where multiple perspectives are valuable, such as strategic planning, risk assessment, or when you want to reduce bias in AI-generated recommendations.
+Note `previous = dict(views)`: without that snapshot, later agents in a round would see earlier agents' *new* positions while earlier agents saw only old ones, making the debate order-dependent.
+
+**When to use it:** Decisions with genuine trade-offs, where the value is in making competing considerations explicit. Avoid it for questions with a single correct answer, where self-consistency is cheaper and at least as effective.
 
 ## Strategy 5: Reflexion
 
-**The Idea:** Humans learn from their mistakes and improve their reasoning over time. Reflexion creates AI agents that can reflect on their own reasoning process, identify errors, and iteratively improve their approach to solving problems.
+**The idea:** Generate a solution, critique it, and use the critique to produce a better one. Reflexion (Shinn et al., 2023) formalized this for agents, and its key ingredient is easy to overlook: the reflections were driven by **external feedback**, such as failing unit tests or a task environment reporting failure. Self-critique without any outside signal is much weaker; research has shown that models often cannot reliably find their own reasoning errors, and sometimes "fix" correct answers into wrong ones (Huang et al., 2023).
 
-This technique is particularly powerful for long-running tasks where the agent needs to maintain context and learn from previous attempts.
-
-The core principle of Reflexion is that AI agents, like humans, can benefit from self-reflection. When we solve complex problems, our first attempt is rarely perfect. We identify gaps, recognize errors, and refine our approach. Reflexion formalizes this process for AI systems.
-
-The Reflexion workflow consists of three main phases:
-1. **Solution Generation**: The agent attempts to solve the problem
-2. **Self-Reflection**: The agent critically evaluates its own solution
-3. **Iterative Improvement**: Based on reflection, the agent generates an improved solution
-
-This creates a feedback loop where each iteration builds upon the insights from previous attempts. The agent learns from its mistakes and gradually develops a more comprehensive and accurate solution.
-
-Key benefits of Reflexion include:
-- **Error Detection**: The agent can identify logical flaws and gaps in its reasoning
-- **Continuous Improvement**: Each iteration incorporates lessons from previous attempts
-- **Adaptive Problem Solving**: The approach adapts to the specific challenges of each problem
-- **Quality Assurance**: The reflection process acts as a built-in quality check
-
-### Implementing Reflexion
+So the most effective version of this loop uses a real check wherever you have one: run the generated code's tests, validate the JSON against a schema, check the numbers with code, or compare against a reference document. Where no external check exists, a structured critique against explicit criteria is still useful for completeness and clarity, as long as you don't treat it as proof of correctness.
 
 ```python
+import json
+
 class ReflexionAgent:
-    def __init__(self):
-        self.client = openai.OpenAI()
-        self.reflection_history = []
-        
-    def solve_with_reflection(self, problem: str, max_attempts: int = 3) -> str:
-        """Solve a problem with iterative reflection and improvement."""
-        
-        print(f"=== Reflexion Agent Solving: {problem} ===\n")
-        
-        for attempt in range(max_attempts):
-            print(f"--- Attempt {attempt + 1} ---")
-            
-            # Generate solution
-            solution = self._generate_solution(problem, attempt)
-            print(f"Solution: {solution}")
-            
-            # Reflect on the solution
-            reflection = self._reflect_on_solution(problem, solution, attempt)
-            print(f"Reflection: {reflection}")
-            
-            # Check if we should continue or if solution is satisfactory
-            if self._is_solution_satisfactory(reflection):
-                print(f"\n=== Solution Found on Attempt {attempt + 1} ===")
+    def solve(self, problem: str, criteria: list[str], max_attempts: int = 3) -> str:
+        reflections: list[str] = []        # local to this call, so nothing leaks between problems
+        solution = ""
+
+        for attempt in range(1, max_attempts + 1):
+            lessons = "\n".join(f"- {r}" for r in reflections) or "(none yet)"
+            solution = ask(f"""
+Problem: {problem}
+
+Lessons from previous attempts:
+{lessons}
+
+Write your best solution, addressing every lesson above.
+""")
+
+            verdict = self._critique(problem, solution, criteria)
+            print(f"Attempt {attempt}: passes={verdict['passes']} issues={verdict['issues']}")
+            if verdict["passes"]:
                 return solution
-            
-            # Store reflection for next attempt
-            self.reflection_history.append({
-                "attempt": attempt + 1,
-                "solution": solution,
-                "reflection": reflection
-            })
-            
-            print()
-        
-        # If we reach here, return the best solution from all attempts
-        return self._synthesize_best_solution(problem)
-    
-    def _generate_solution(self, problem: str, attempt: int) -> str:
-        """Generate a solution based on the problem and previous reflections."""
-        
-        reflection_context = ""
-        if self.reflection_history:
-            reflection_context = "\n\nPrevious attempts and reflections:\n"
-            for ref in self.reflection_history:
-                reflection_context += f"Attempt {ref['attempt']}: {ref['reflection']}\n"
-        
-        prompt = f"""
+            reflections.extend(verdict["issues"])
+
+        return solution   # best effort after max_attempts; flag for human review in a real system
+
+    def _critique(self, problem: str, solution: str, criteria: list[str]) -> dict:
+        reply = client.responses.create(
+            model=MODEL,
+            input=f"""
+Evaluate the solution strictly against each criterion.
+
 Problem: {problem}
+Criteria: {json.dumps(criteria)}
+<solution>
+{solution}
+</solution>
 
-{reflection_context}
+Return JSON: {{"passes": true or false, "issues": ["specific, actionable problem", ...]}}.
+"passes" is true only if every criterion is fully met.
+""",
+            text={"format": {"type": "json_object"}},
+        ).output_text
+        verdict = json.loads(reply)
+        return {"passes": bool(verdict.get("passes")), "issues": list(verdict.get("issues", []))}
 
-Based on the problem and any previous reflections, provide a solution.
-If this is not the first attempt, incorporate lessons learned from previous attempts.
-"""
-        
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        ).choices[0].message.content
-        
-        return response
-    
-    def _reflect_on_solution(self, problem: str, solution: str, attempt: int) -> str:
-        """Reflect on the quality and completeness of the solution."""
-        
-        prompt = f"""
-Problem: {problem}
-Solution Attempt {attempt + 1}: {solution}
-
-Critically evaluate this solution:
-1. Does it fully address the problem?
-2. Are there any logical flaws or gaps?
-3. Could it be improved or refined?
-4. What specific improvements would you suggest?
-
-Provide a detailed reflection that will help improve the next attempt.
-"""
-        
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.5
-        ).choices[0].message.content
-        
-        return response
-    
-    def _is_solution_satisfactory(self, reflection: str) -> bool:
-        """Determine if the solution is satisfactory based on reflection."""
-        
-        # Simple heuristic: if reflection doesn't mention major issues, consider it satisfactory
-        negative_indicators = ["major flaw", "significant gap", "doesn't address", "incomplete", "missing"]
-        return not any(indicator in reflection.lower() for indicator in negative_indicators)
-    
-    def _synthesize_best_solution(self, problem: str) -> str:
-        """Synthesize the best elements from all attempts."""
-        
-        attempts_summary = "\n\n".join([
-            f"Attempt {ref['attempt']}:\nSolution: {ref['solution']}\nReflection: {ref['reflection']}"
-            for ref in self.reflection_history
-        ])
-        
-        prompt = f"""
-Problem: {problem}
-
-After multiple attempts, here are the solutions and reflections:
-
-{attempts_summary}
-
-Synthesize the best elements from all attempts into a comprehensive final solution.
-Address the issues identified in the reflections and combine the strongest aspects of each attempt.
-"""
-        
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
-        ).choices[0].message.content
-        
-        return response
-
-# Example usage
-reflexion_agent = ReflexionAgent()
-complex_problem = "Design a comprehensive IoT security strategy for a smart city that balances functionality, privacy, and cost-effectiveness."
-
-final_solution = reflexion_agent.solve_with_reflection(complex_problem)
-print("\n=== Final Reflexion Solution ===")
-print(final_solution)
+criteria = [
+    "Covers device authentication and credential rotation",
+    "Covers network segmentation for IoT devices",
+    "Addresses data privacy for residents, including retention limits",
+    "Includes an incident response process",
+    "Gives a rough cost tier (low/medium/high) for each measure",
+]
+plan = ReflexionAgent().solve(
+    "Design an IoT security strategy for a mid-sized smart city that balances functionality, privacy, and cost.",
+    criteria,
+)
+print(plan)
 ```
 
-**When to use it:** For complex, multi-faceted problems where initial solutions are likely to be incomplete or flawed, and where iterative improvement is valuable.
+Compared with a keyword check ("does the critique mention 'missing'?"), a structured verdict against explicit criteria gives a clear stop condition and concrete, actionable feedback for the next attempt.
+
+**When to use it:** Tasks with checkable quality criteria, and above all tasks where you can plug in a real external check (tests, validators, reference data).
+
+## Strategy 6: Prompt Chaining
+
+**The idea:** Instead of one prompt that tries to do everything, split the task into a sequence of focused steps, where each step's output becomes the next step's input. This is the most widely used advanced technique in production, because it makes systems **more reliable, easier to debug, and cheaper** at the same time:
+
+-   Each prompt has one job, so it is easier to get right and to test.
+-   You can **validate between steps** in ordinary code and stop early when something is wrong.
+-   You can use a small, cheap model for simple steps and a strong model only where needed.
+
+Let's turn a raw maintenance log into a customer-ready incident notice in three steps, with a code check between them.
+
+```python
+def extract_incident(raw_log: str) -> dict:
+    """Step 1: extraction. Structured output we can validate."""
+    reply = client.responses.create(
+        model=MODEL,
+        reasoning={"effort": "low"},
+        input=f"""
+Extract the incident from this log as JSON with keys:
+device_id (string), start_time (ISO 8601), impact (string), customer_facing (boolean).
+
+<log>
+{raw_log}
+</log>
+""",
+        text={"format": {"type": "json_object"}},
+    ).output_text
+    return json.loads(reply)
+
+def validate_incident(incident: dict) -> list[str]:
+    """Gate: deterministic checks in plain code, not in a prompt."""
+    problems = [f"missing {key}" for key in ("device_id", "start_time", "impact", "customer_facing")
+                if key not in incident]
+    if not incident.get("customer_facing", False):
+        problems.append("not customer-facing: no notice needed")
+    return problems
+
+def draft_notice(incident: dict) -> str:
+    """Step 2: generation, grounded only in the validated fields."""
+    return ask(f"""
+Write a short, calm service notice for customers based ONLY on these facts:
+{json.dumps(incident)}
+Do not speculate about causes. Include the start time and what customers may notice.
+""")
+
+def review_notice(notice: str, incident: dict) -> str:
+    """Step 3: a focused review pass."""
+    return ask(f"""
+Check this customer notice against the facts. Fix any statement not supported by the facts,
+remove internal jargon, and return only the corrected notice.
+
+Facts: {json.dumps(incident)}
+<notice>
+{notice}
+</notice>
+""")
+
+raw_log = "2026-10-12T07:41:03Z GW-17 uplink lost; 340 smart meters in district 4 not reporting; billing dashboards show stale data."
+incident = extract_incident(raw_log)
+problems = validate_incident(incident)
+if problems:
+    print("Chain stopped:", problems)
+else:
+    print(review_notice(draft_notice(incident), incident))
+```
+
+Notice what the chain buys you: if the extraction misses a field, the chain stops with a clear reason instead of producing a confident but wrong notice; and each step can be tested on its own (Chapter 24).
+
+**When to use it:** Almost any multi-part task with a predictable sequence of steps. If you can draw the steps as a flowchart, prefer a chain over one giant prompt, and over an autonomous agent (Chapter 13).
 
 ## Conclusion
 
-You have now moved beyond basic prompting and into the realm of advanced AI reasoning frameworks. These strategies are the tools that allow you to tackle ambiguity, complexity, and high-stakes problems with a greater degree of confidence and reliability.
+You have moved beyond single prompts to multi-call reasoning workflows. Each comes with a cost multiplier, so reach for them when they solve a specific problem:
 
--   **Self-Consistency:** Use for accuracy and to reduce the randomness of single-shot answers.
--   **Tree-of-Thought:** Use for exploring complex problems with multiple possible solutions.
--   **ReAct:** Use for dynamic problems that require information gathering.
--   **Multi-Agent Debate:** Use for complex decisions where multiple perspectives reduce bias and improve robustness.
--   **Reflexion:** Use for complex problems where iterative improvement and learning from mistakes is valuable.
+-   **Self-Consistency:** Majority voting over comparable answers; the agreement rate also measures uncertainty.
+-   **Tree-of-Thought:** Explore distinct approaches independently, then evaluate and combine.
+-   **ReAct:** Interleave reasoning with tool use to gather information; the basis of agents.
+-   **Multi-Agent Debate:** Make trade-offs explicit for decisions; not a substitute for verification.
+-   **Reflexion:** Iterate with critique, ideally driven by an external check.
+-   **Prompt Chaining:** Focused steps with validation in between; the workhorse of production systems.
 
-Often, the most powerful applications will **chain** these strategies together. For example, you might use a Tree-of-Thought approach where each "thought" is a ReAct loop. By mastering these patterns, you are truly engineering with AI, not just prompting it.
+These strategies combine well: a chain can include a self-consistency vote at its riskiest step, or a ReAct loop to gather facts before a Tree-of-Thought planning step. Combined with measurement, they are how you engineer with AI rather than just prompting it.
 
 # References and Further Reading
 
-- Unlocking the Power of LLMs: A Guide to Advanced Prompting Strategies (LinkedIn). https://www.linkedin.com/pulse/unlocking-power-llms-guide-advanced-prompting-strategies-srikanth-r-xdqnc
-- From Zero to Hero: The Complete Evolution of a Prompt (DEV.to). https://dev.to/jammy_lee_88c9258df43557f/from-zero-to-hero-the-complete-evolution-of-a-prompt-16kd
-- My Prompt Stack for Work: 16 Prompts In My AI Toolkit That Make Work a LOT Easier (Substack). https://natesnewsletter.substack.com/p/my-prompt-stack-for-work-16-prompts
-- Mastering Veo 3: An Expert Guide to Optimal Prompt Structure and Cinematic Camera Control (Medium). https://medium.com/@miguelivanov/mastering-veo-3-an-expert-guide-to-optimal-prompt-structure-and-cinematic-camera-control-693d01ae9f8b
+- Self-Consistency Improves Chain of Thought Reasoning in Language Models (Wang et al., 2022). https://arxiv.org/abs/2203.11171
+- Tree of Thoughts: Deliberate Problem Solving with Large Language Models (Yao et al., 2023). https://arxiv.org/abs/2305.10601
+- ReAct: Synergizing Reasoning and Acting in Language Models (Yao et al., 2022). https://arxiv.org/abs/2210.03629
+- Improving Factuality and Reasoning in Language Models through Multiagent Debate (Du et al., 2023). https://arxiv.org/abs/2305.14325
+- Reflexion: Language Agents with Verbal Reinforcement Learning (Shinn et al., 2023). https://arxiv.org/abs/2303.11366
+- Large Language Models Cannot Self-Correct Reasoning Yet (Huang et al., 2023). https://arxiv.org/abs/2310.01798
+- Building effective agents: prompt chaining and other workflow patterns (Anthropic, 2024). https://www.anthropic.com/engineering/building-effective-agents
