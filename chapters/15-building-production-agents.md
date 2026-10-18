@@ -41,33 +41,28 @@ class PrototypeAgent:
 Now, consider the architectural skeleton of a production-grade agent. It's designed from the ground up for resilience and observability.
 
 ```python
-import logging
 import json
-from datetime import datetime
+import logging
+import time
 
 class ProductionAgent:
     """An agent architected for production reliability."""
     
     def __init__(self, agent_id: str, state_store, metrics_collector):
         self.agent_id = agent_id
-        self.state_store = state_store          # For persistence
+        self.state_store = state_store          # For persistence (async interface, below)
         self.metrics = metrics_collector        # For monitoring
-        self.logger = self._setup_logging()     # For observability
-        
-        # Load persisted state on startup
-        self.state = self.state_store.load(self.agent_id) or {"tasks_completed": 0}
+        self.logger = logging.getLogger(f"agent.{agent_id}")   # configure JSON handlers at startup
+        self.state: dict = {}
 
-    def _setup_logging(self) -> logging.Logger:
-        """Configures structured logging for easy analysis."""
-        logger = logging.getLogger(f"agent.{self.agent_id}")
-        logger.setLevel(logging.INFO)
-        # In a real app, you'd add handlers (e.g., for JSON output to a log aggregator)
-        return logger
+    async def initialize(self):
+        """Loads persisted state; call once on startup (constructors can't await)."""
+        self.state = await self.state_store.load(self.agent_id) or {"tasks_completed": 0}
 
-    def process(self, task: dict):
+    async def process(self, task: dict):
         """Processes a task with full production safeguards."""
         task_id = task.get("id", "unknown_task")
-        start_time = datetime.now()
+        start = time.monotonic()
         
         self.logger.info(json.dumps({"event": "task_started", "task_id": task_id}))
         
@@ -76,13 +71,10 @@ class ProductionAgent:
             result = f"Completed task: {task.get('description')}"
 
             # Record metrics for success
-            self.metrics.record_success(
-                agent_id=self.agent_id,
-                duration=(datetime.now() - start_time).total_seconds()
-            )
+            self.metrics.record_success(agent_id=self.agent_id, duration=time.monotonic() - start)
             # Persist state after successful operation
             self.state["tasks_completed"] += 1
-            self.state_store.save(self.agent_id, self.state)
+            await self.state_store.save(self.agent_id, self.state)
             
             self.logger.info(json.dumps({"event": "task_completed", "task_id": task_id}))
             return {"status": "success", "result": result}
@@ -101,79 +93,62 @@ This chapter is about building the pieces—`StateStore`, `MetricsCollector`, an
 
 ## Choosing Your Foundation: Agent Frameworks
 
-While you can build an agent from scratch, several powerful frameworks provide battle-tested components for memory, tool use, and agent orchestration. Choosing the right one can save you significant development time.
+While you can build an agent from scratch (and Chapter 14's loop is most of an agent), frameworks provide tested components for the agent loop, memory, persistence, tracing, and human-in-the-loop steps. The landscape moves fast, and several frameworks popular in 2024 have since been redesigned or retired, so it pays to understand the categories rather than memorize APIs:
 
-### LangChain: The Comprehensive Toolkit
+| Category | Examples (as of October 2026) | Use when |
+| --- | --- | --- |
+| **Provider agent SDKs** | OpenAI Agents SDK, Claude Agent SDK, Google Agent Development Kit (ADK) | You mostly use one provider and want its best-supported loop, tools, and tracing. |
+| **Graph/state frameworks** | LangGraph, and LangChain 1.x (built on LangGraph) | You need explicit control over state, branching, checkpoints, and resumable human approval. |
+| **Multi-agent / team frameworks** | CrewAI, Microsoft Agent Framework (successor to AutoGen and Semantic Kernel) | You want role-based teams of agents with built-in coordination. |
+| **Typed, lightweight libraries** | PydanticAI and similar | You want type-safe tools and outputs with minimal abstraction. |
+| **Managed agent platforms** | Hosted agent services from the major providers and clouds | You want the provider to run the loop and the sandbox where tools execute. |
 
-LangChain is a mature, feature-rich framework that provides a vast ecosystem of integrations and components. It excels at creating single, powerful agents that can use many tools and maintain conversational memory.
+Whatever you choose, keep two things in your own hands: your **tool implementations** (with their permission checks), and your **evaluations** (Chapter 24). Those outlive any framework migration.
 
-**Philosophy:** A "batteries-included" library for chaining LLM calls with tools, data sources, and memory.
+### LangChain 1.x: A Single-Agent Example
+
+LangChain is one of the most widely used open-source frameworks, with a vast ecosystem of integrations. Version 1.0 (late 2025) simplified the agent API to a single `create_agent` function built on LangGraph. The older `AgentExecutor`-style code found in many tutorials has moved to the `langchain-classic` package.
 
 ```python
-from langchain.agents import AgentExecutor, create_openai_tools_agent
-from langchain.memory import ConversationBufferMemory
-from langchain_openai import ChatOpenAI
-from langchain.tools import Tool
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+# pip install langchain langchain-openai
+from langchain.agents import create_agent
+from langgraph.checkpoint.memory import InMemorySaver
 
-# 1. Define tools
-tools = [
-    Tool(
-        name="check_iot_status",
-        func=lambda device_id: f"Device {device_id} is online.",
-        description="Checks the current status of a specific IoT device."
-    ),
-    Tool(
-        name="restart_device",
-        func=lambda device_id: f"Device {device_id} restart initiated.",
-        description="Restarts a specific IoT device."
-    )
-]
+# 1. Tools are plain, typed Python functions; the docstring becomes the description.
+def check_iot_status(device_id: str) -> str:
+    """Checks the current status of a specific IoT device."""
+    return f"Device {device_id} is online."
 
-# 2. Create a prompt template
-prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are an industrial automation specialist."),
-    MessagesPlaceholder(variable_name="chat_history"),
-    ("user", "{input}"),
-    MessagesPlaceholder(variable_name="agent_scratchpad")
-])
+def restart_device(device_id: str) -> str:
+    """Restarts a specific IoT device."""
+    return f"Device {device_id} restart initiated."
 
-# 3. Assemble the agent
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-agent = create_openai_tools_agent(llm, tools, prompt)
-
-# 4. Create the executor
-agent_executor = AgentExecutor(
-    agent=agent,
-    tools=tools,
-    memory=memory,
-    verbose=True, # Essential for debugging
-    handle_parsing_errors=True # Crucial for production
+# 2. Assemble the agent. The checkpointer gives it per-conversation memory.
+agent = create_agent(
+    model="openai:gpt-6-luna",
+    tools=[check_iot_status, restart_device],
+    system_prompt="You are an industrial automation specialist. Restart devices only when they are online and unresponsive.",
+    checkpointer=InMemorySaver(),   # use a database-backed checkpointer in production
 )
 
-# 5. Run the agent
-# agent_executor.invoke({"input": "Check sensor_001 and restart it if it's online."})
+# 3. Run it. The thread_id identifies the conversation, so follow-ups remember context.
+config = {"configurable": {"thread_id": "operator-42"}}
+result = agent.invoke({"messages": [{"role": "user", "content": "Check sensor_001."}]}, config)
+print(result["messages"][-1].content)
 ```
 
-**Best for:** Complex, single-agent workflows that require extensive tool integrations and memory.
+**Best for:** Agents that need many integrations, persistent conversations, and LangGraph features such as pausing for human approval and resuming later.
 
-### AutoGen: Multi-Agent Conversations
+### Multi-Agent Frameworks
 
-AutoGen, from Microsoft, is designed for building systems where multiple agents collaborate by "talking" to each other to solve a problem. Each agent has a specific role and expertise.
-
-**Philosophy:** Problems are solved through conversation between specialized agents.
-
-Instead of a single agent deciding everything, an AutoGen system orchestrates a dialogue. For example:
+**Microsoft Agent Framework** is the successor to **AutoGen**, which Microsoft moved to maintenance mode in late 2025 (a community fork continues as AG2). The idea that AutoGen popularized, specialized agents that solve a problem by exchanging messages, lives on. For example:
 
 1.  A `MonitorAgent` detects an anomaly.
 2.  It sends a message to a `DiagnosticAgent`: "I've detected a pressure spike on Pump-07."
-3.  The `DiagnosticAgent` analyzes the problem and replies with a root cause analysis and a suggested fix.
-4.  It sends this plan to an `OperatorAgent`, which then executes the fix (e.g., calls a `restart_pump` tool).
+3.  The `DiagnosticAgent` analyzes the problem and replies with a root cause and a suggested fix.
+4.  An `OperatorAgent` executes the fix (for example, by calling a `restart_pump` tool), after human approval.
 
-This conversational approach excels at breaking down complex problems into manageable pieces handled by specialized experts.
-
-**Best for:** Collaborative tasks, problem-solving simulations, and complex workflows that benefit from multiple expert perspectives.
+**Best for:** Problems that genuinely decompose into separate roles. Chapter 16 discusses when multiple agents help and when they mostly add cost.
 
 ### CrewAI: Task-Oriented Agent Teams
 
@@ -256,24 +231,30 @@ For high-performance production systems, a dedicated in-memory database like Red
 
 ```python
 import redis.asyncio as aioredis
-import pickle
 
 class RedisStateStore(StateStore):
-    """A high-performance state store using Redis."""
+    """A shared, fast state store using Redis."""
     def __init__(self, redis_url: str = "redis://localhost"):
-        self.redis = aioredis.from_url(redis_url)
+        self.redis = aioredis.from_url(redis_url, decode_responses=True)
 
     async def save(self, agent_id: str, state: Dict[str, Any]) -> bool:
         try:
-            # Pickle is used for Python objects; JSON is safer for interoperability.
-            await self.redis.set(f"agent:state:{agent_id}", pickle.dumps(state))
+            # JSON, not pickle: unpickling data an attacker can modify executes arbitrary code.
+            await self.redis.set(f"agent:state:{agent_id}", json.dumps(state, default=str))
             return True
-        except Exception:
+        except aioredis.RedisError:
             # Add logging here
             return False
 
-    # ... implement load and delete ...
+    async def load(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        raw = await self.redis.get(f"agent:state:{agent_id}")
+        return json.loads(raw) if raw else None
+
+    async def delete(self, agent_id: str) -> bool:
+        return bool(await self.redis.delete(f"agent:state:{agent_id}"))
 ```
+
+Redis is fast but, depending on configuration, can lose recent writes on a crash. For state you can't afford to lose (an agent halfway through a multi-step task with real-world side effects), use a durable database, or a durable-execution engine (Chapter 28).
 
 By coding our agent against the `StateStore` interface, we can easily switch between backends without changing the agent's core logic.
 
@@ -282,6 +263,8 @@ By coding our agent against the `StateStore` interface, we can easily switch bet
 A stateful agent loads its state upon initialization and periodically checkpoints its state back to the store.
 
 ```python
+from datetime import datetime
+
 class StatefulAgent:
     def __init__(self, agent_id: str, state_store: StateStore):
         self.agent_id = agent_id
@@ -331,7 +314,19 @@ class CommunicationProtocol(ABC):
         pass
 ```
 
-A common and scalable implementation uses a message broker like Redis Pub/Sub. One agent publishes a message to a channel, and other agents subscribed to that channel receive it. This decouples the agents and allows for a scalable, distributed architecture.
+A common and scalable implementation uses a message broker. Note that Redis Pub/Sub is fire-and-forget (a message sent while an agent is offline is lost); for messages that must be delivered, use Redis Streams, RabbitMQ, or Kafka, which store messages until they are acknowledged.
+
+Between organizations and vendors, open protocols are emerging for this layer: **MCP** (Chapter 14) standardizes how agents reach tools and data, and the **Agent2Agent (A2A)** protocol, started by Google and now an open project, standardizes how agents built by different teams discover and delegate work to one another.
+
+## Guardrails Every Production Agent Needs
+
+Beyond persistence and messaging, agents need limits that ordinary services don't:
+
+-   **Step and cost budgets.** Cap the number of model calls and tool calls per task, and the total tokens or dollars, and stop gracefully when a budget runs out.
+-   **Idempotent tools.** An agent (or a retry) may call the same tool twice. Design write operations so that repeating them is harmless, for example by passing a unique request ID the backend uses to ignore duplicates.
+-   **Timeouts on everything**, including tools, so one hung API doesn't freeze the agent.
+-   **Human approval** for irreversible or high-impact actions (Chapters 14 and 28).
+-   **Evaluation before deployment.** Agents fail in new ways when prompts, tools, or models change; run a set of realistic tasks and check the outcomes before every release (Chapter 24).
 
 ## Seeing in the Dark: Production Observability
 
@@ -384,5 +379,7 @@ By choosing the right framework, externalizing state, establishing clear communi
 
 - Building AI Agents the Right Way: Design Principles for Agentic AI (GoPubby): https://ai.gopubby.com/building-ai-agents-the-right-way-design-principles-for-agentic-ai-47d1b92f0124
 - The Ultimate Guide to Building AI Agents in 2025 (Medium): https://medium.com/@divyanshbhatiajm19/the-ultimate-guide-to-building-ai-agents-in-2025-from-concept-to-deployment-121da166562e
-- A Practical Guide to Building Agents (OpenAI for Business, LinkedIn): https://www.linkedin.com/posts/openai-for-business_a-practical-guide-to-building-agents-ugcPost-7323770045233344512-HM0l/
+- A practical guide to building agents (OpenAI, 2025): https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf
+- Building effective agents (Anthropic, 2024): https://www.anthropic.com/engineering/building-effective-agents
+- LangChain v1 migration guide: https://docs.langchain.com/oss/python/migrate/langchain-v1
 - Building AI Agents: 14 Best Practices I Learned the Hard Way (Product Compass): https://www.productcompass.pm/p/building-ai-agents-best-practices

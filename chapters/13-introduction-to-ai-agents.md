@@ -25,14 +25,11 @@ import openai
 
 # Assumes the OPENAI_API_KEY environment variable is set
 client = openai.OpenAI()
+MODEL = "gpt-6-luna"
 
 def simple_chatbot(user_input: str) -> str:
     """A basic, stateless chatbot function."""
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": user_input}]
-    )
-    return response.choices[0].message.content
+    return client.responses.create(model=MODEL, input=user_input).output_text
 
 # Each call to the function is a world of its own, with no memory of the past.
 print(simple_chatbot("What is the current temperature of sensor T-001?"))
@@ -49,6 +46,15 @@ This chatbot suffers from three fundamental limitations:
 3.  **No Goals:** It is purely reactive. It has no long-term objectives it's trying to achieve. It simply waits for a prompt and responds.
 
 An agent is designed to overcome these very limitations. It has memory, it can use tools, and it operates based on a set of goals.
+
+### Workflows vs. Agents: Choose the Simplest Thing That Works
+
+Before building an agent, it helps to use the distinction that has become standard in the industry:
+
+-   A **workflow** is a system where *your code* defines the sequence of steps, and LLM calls fill in individual steps (the prompt chains of Chapter 10 are workflows).
+-   An **agent** is a system where *the LLM decides* what to do next: which tool to call, with what arguments, and when the task is done, usually by calling tools in a loop.
+
+Agents are more flexible, but also slower, more expensive, and harder to test, because their path is not known in advance. A good rule: if you can draw the steps as a flowchart, build a workflow. Reach for an agent when the steps genuinely depend on what is discovered along the way (open-ended troubleshooting, research, coding), and when errors can be caught and recovered from. This chapter builds a monitoring agent from first principles so you can see every moving part; Chapter 14 shows the tool-calling loop that modern agents are built on.
 
 ## The Agent Loop: A Blueprint for Autonomy
 
@@ -180,7 +186,7 @@ A sophisticated memory system might have multiple layers (short-term, long-term,
 
 ```python
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Deque, Dict, Any, List
 
 class MemorySystem:
@@ -190,21 +196,22 @@ class MemorySystem:
         self.short_term: Deque[Dict] = deque(maxlen=short_term_capacity)
 
     def store(self, memory_item: Dict[str, Any]):
-        """Stores an item in the agent's short-term memory."""
-        memory_item["timestamp"] = datetime.now()
-        self.short_term.append(memory_item)
-        print(f"Stored in memory: {memory_item['type']}")
+        """Stores a copy of the item, stamped with the current time."""
+        entry = {**memory_item, "timestamp": datetime.now(timezone.utc).isoformat()}
+        self.short_term.append(entry)
+        print(f"Stored in memory: {entry['type']}")
 
     def recall(self, query: str) -> List[Dict]:
         """Retrieves memories that match a simple text query."""
-        # This is a very basic search, more advanced systems use vector search.
+        # A very basic search; more advanced systems use vector search (Chapter 27).
         query_lower = query.lower()
-        results = [
-            mem for mem in self.short_term 
-            if query_lower in json.dumps(mem).lower()
+        return [
+            mem for mem in self.short_term
+            if query_lower in json.dumps(mem, default=str).lower()
         ]
-        return results
 ```
+
+Storing a *copy* means later changes to the caller's dictionary can't silently rewrite the agent's past, and storing the timestamp as an ISO string keeps every memory JSON-serializable.
 
 Let's test our memory system. We'll store the perceptions we gathered in the previous step and then try to recall information.
 
@@ -248,7 +255,7 @@ Recalled Memories for 'device_002':
         "device_002": 91.5
       }
     },
-    "timestamp": "..."
+    "timestamp": "2026-10-18T09:30:00.123456+00:00"
   }
 ]
 ```
@@ -259,64 +266,68 @@ With memory, our agent now has context. It can connect the dots between past and
 
 The reasoning engine is where the "thinking" happens. It takes the agent's current perceptions and relevant memories, considers its goals, and decides what to do next. This is the perfect job for an LLM.
 
-Our `ReasoningEngine` will have a single, powerful method: `reason`. It will format the available information into a prompt for the LLM and parse its structured JSON response.
+Our `ReasoningEngine` will have a single method: `reason`. It formats the available information into a prompt, **including the list of actions the agent can actually perform**, and parses the structured JSON response. Without that list, the model would invent plausible-sounding actions ("dispatch_technician", "throttle_cpu") that the agent has no way to execute.
 
 ```python
 class ReasoningEngine:
     """The agent's decision-making component, powered by an LLM."""
-    def __init__(self, model: str = "gpt-4o-mini"):
+    def __init__(self, model: str = MODEL):
         self.client = openai.OpenAI()
         self.model = model
 
-    def reason(self, goal: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyzes the context and decides on the next actions."""
-        prompt = f"""
-You are the reasoning core of an autonomous IoT monitoring agent.
+    def reason(self, goal: str, context: Dict[str, Any], available_actions: Dict[str, str]) -> Dict[str, Any]:
+        """Analyzes the context and decides on the next actions.
 
+        available_actions maps each action name to a description of its parameters.
+        """
+        action_list = "\n".join(f"- {name}: {desc}" for name, desc in available_actions.items())
+        prompt = f"""
 Your primary goal is: "{goal}"
 
-Here is the current context based on your recent perceptions and memories:
+Current context from your perceptions and memory:
 {json.dumps(context, indent=2, default=str)}
 
-Based on this context and your primary goal, analyze the situation and recommend the next course of action.
-Your response MUST be a JSON object with the following structure:
+Actions you can take (use ONLY these):
+{action_list}
+
+If no action is needed, return an empty list of actions.
+Respond with a JSON object:
 {{
-  "analysis": "A brief, one-sentence analysis of the situation.",
-  "recommended_actions": [
-    {{
-      "action_name": "name_of_the_action_to_take",
-      "parameters": {{ "key": "value" }}
-    }}
-  ]
+  "analysis": "one-sentence analysis of the situation",
+  "recommended_actions": [{{"action_name": "<one of the actions above>", "parameters": {{...}}}}]
 }}
 """
-        
-        response = self.client.chat.completions.create(
+        response = self.client.responses.create(
             model=self.model,
-            messages=[{"role": "system", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.1,
+            instructions="You are the reasoning core of an autonomous IoT monitoring agent.",
+            input=prompt,
+            text={"format": {"type": "json_object"}},
         )
-        
-        decision = json.loads(response.choices[0].message.content)
+        decision = json.loads(response.output_text)
+
+        # Never trust the model's choice blindly: drop anything outside the allowed set.
+        decision["recommended_actions"] = [
+            a for a in decision.get("recommended_actions", [])
+            if a.get("action_name") in available_actions
+        ]
         return decision
 ```
 
-Let's feed our engine the high-temperature perception we've been tracking. We'll give it a clear goal and the context from our memory.
+Let's feed our engine the high-temperature perception we've been tracking. We'll give it a clear goal, the context, and the actions it is allowed to take.
 
 ```python
-# Create the reasoning engine
 reasoner = ReasoningEngine()
 
-# Define the agent's goal and the current context
 agent_goal = "Ensure all devices operate within safe temperature limits (< 90 degrees)."
 current_context = {
     "recent_perceptions": current_perceptions,
     "active_alerts": 0
 }
+available_actions = {
+    "send_alert": "parameters: device_id (string), level ('info'|'warning'|'critical'), message (string)",
+}
 
-# Let the agent think
-decision = reasoner.reason(goal=agent_goal, context=current_context)
+decision = reasoner.reason(goal=agent_goal, context=current_context, available_actions=available_actions)
 
 print("\nAgent's Decision:")
 print(json.dumps(decision, indent=2))
@@ -398,16 +409,13 @@ action_system = ActionSystem()
 # 2. Register our tool
 action_system.register_action("send_alert", send_alert_action)
 
-# 3. Get the recommended action from the agent's decision
-recommended_action = decision["recommended_actions"][0]
-
-# 4. Execute the action
-execution_result = action_system.execute(
-    action_name=recommended_action["action_name"],
-    parameters=recommended_action["parameters"]
-)
-
-print(f"\nExecution Result: {execution_result}")
+# 3. Execute every action the reasoning engine recommended (there may be none)
+for recommended_action in decision["recommended_actions"]:
+    execution_result = action_system.execute(
+        action_name=recommended_action["action_name"],
+        parameters=recommended_action.get("parameters", {})
+    )
+    print(f"\nExecution Result: {execution_result}")
 ```
 
 **Output:**
@@ -453,6 +461,10 @@ class AutonomousIoTAgent:
         """A helper method to register all sensors and actions."""
         self.perception.register_sensor("temperatures", temperature_sensor)
         self.actions.register_action("send_alert", send_alert_action)
+        # Descriptions the reasoning engine sees, keyed by the same action names.
+        self.action_descriptions = {
+            "send_alert": "parameters: device_id (string), level ('info'|'warning'|'critical'), message (string)",
+        }
 ```
 
 Next, the `run_cycle` method orchestrates one pass of the Perceive-Think-Act loop. This is the heart of the agent's autonomous behavior.
@@ -469,13 +481,15 @@ Next, the `run_cycle` method orchestrates one pass of the Perceive-Think-Act loo
         self.memory.store({"type": "perception", "data": perceptions})
 
         # 2. THINK
-        context = {"recent_perceptions": perceptions}
-        decision = self.reasoner.reason(self.goal, context)
+        # The OpenAI client used here is synchronous; run it in a worker thread so it
+        # doesn't block the event loop. (Or use openai.AsyncOpenAI and await it.)
+        context = {"recent_perceptions": perceptions, "recent_actions": self.memory.recall("action_result")[-5:]}
+        decision = await asyncio.to_thread(self.reasoner.reason, self.goal, context, self.action_descriptions)
         self.memory.store({"type": "decision", "data": decision})
 
         # 3. ACT
         for action in decision.get("recommended_actions", []):
-            result = self.actions.execute(action["action_name"], action["parameters"])
+            result = self.actions.execute(action["action_name"], action.get("parameters", {}))
             self.memory.store({
                 "type": "action_result",
                 "action": action,
@@ -525,16 +539,17 @@ async def main():
     # In a real application, the agent would run indefinitely.
     # Here, we'll stop it after a few cycles for demonstration.
     try:
-        # Run the agent for 3 cycles (30 seconds)
-        await asyncio.wait_for(agent.start(simulate_environment, interval_seconds=5), timeout=18)
+        # Run for about 30 seconds: roughly four or five cycles, depending on model latency.
+        await asyncio.wait_for(agent.start(simulate_environment, interval_seconds=5), timeout=30)
     except asyncio.TimeoutError:
         agent.stop()
 
-# To run this in a script or Jupyter notebook:
-# asyncio.run(main())
+# In a script: asyncio.run(main())   In Jupyter: await main()
 ```
 
-If you run this code, you will see the agent do nothing for the first few cycles. But once the simulated temperature of `device_002` crosses 90 degrees, the agent's reasoning engine will kick in, and it will autonomously execute the `send_alert` action, fulfilling its goal. This is the power of autonomous agents in action.
+If you run this code, the agent should take no action for the first cycles (87 and 89 degrees). Once the simulated temperature of `device_002` crosses 90 degrees, the reasoning engine recommends `send_alert`, and the agent executes it on its own. Because recent actions are part of the context, a good model will also avoid re-sending the same alert every cycle.
+
+Before you let an agent like this act on real equipment, add the safeguards later chapters cover: restrict it to safe actions by default, require human approval for anything consequential (Chapter 28), cap how many actions it can take per cycle, and log every decision (Chapter 23). Calling an LLM on a fixed timer is also expensive; in production you would usually run cheap rule-based checks continuously and invoke the LLM only when something unusual is detected.
 
 ## Conclusion
 
@@ -555,3 +570,5 @@ This foundation is the springboard into the wider world of agentic AI. From here
 - AI Agents for Dummies: A Beginner’s Guide to Autonomous AI (Medium). https://michielh.medium.com/ai-agents-for-dummies-c1b5b5e6c4b4
 - AI Agents: Technical Overview, Architecture, and Implementation (Medium). https://sen-abby.medium.com/ai-agents-technical-overview-architecture-and-implementation-8811df690565
 - How we built our multi-agent research system (Anthropic, 2025): https://www.anthropic.com/engineering/built-multi-agent-research-system
+- Building effective agents (Anthropic, 2024): https://www.anthropic.com/engineering/building-effective-agents
+- A practical guide to building agents (OpenAI, 2025): https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf

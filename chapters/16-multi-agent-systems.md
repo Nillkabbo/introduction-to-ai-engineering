@@ -29,6 +29,18 @@ A multi-agent system offers a more robust and scalable solution:
 
 This division of labor is the key. Each agent is simpler, more focused, and more effective within its domain. The system's true intelligence emerges from their collaboration.
 
+### When Multiple Agents Help, and When They Hurt
+
+Multi-agent designs are fashionable, so it's worth being precise about their trade-offs before building one. Experience from production systems in 2025–2026 points in a consistent direction:
+
+-   **They help when the work is genuinely parallel and separable.** Anthropic's write-up of its multi-agent research system describes a lead agent sending several sub-agents to research different aspects of a question at once, each with a fresh context window, which beat a single agent on broad research tasks.
+-   **They are expensive.** The same report found that multi-agent runs used roughly an order of magnitude more tokens than a single chat interaction. Every agent re-reads context, and coordination messages cost tokens too.
+-   **They struggle when tasks are tightly coupled.** When sub-tasks depend on each other's decisions (writing different parts of the same program, for example), agents that each see only part of the context make conflicting choices. Several teams have argued for a single agent with good context management in those cases.
+
+A practical rule: start with one agent (or a workflow, Chapter 13). Split into multiple agents when one of these is true: the context needed exceeds what one agent can manage well, independent sub-tasks can run in parallel, or different parts of the work need different permissions (a read-only research agent and a separately approved action agent). The most proven pattern is **orchestrator–worker**: one coordinating agent plans and delegates; workers do focused tasks and report back.
+
+> **About the code in this chapter.** To keep the focus on coordination patterns, the agents' `process` and `cast_vote` methods below return simulated strings instead of calling a model. Swapping in a real call is straightforward with the patterns from Chapters 5–11; for decisions like plans and votes, use Structured Outputs (Chapter 11) so the results are machine-readable.
+
 ### From a Single Agent to a Team
 
 Let's start by seeing the difference in practice. Here's how a single agent might struggle with a complex task.
@@ -98,6 +110,8 @@ class SimpleMultiAgentSystem:
                 print(f"  -> Routing to expert: {agent.name}")
                 return agent.process(task)
         
+        if not self.agents:
+            raise RuntimeError("No agents registered")
         print("  -> No specialist found. Routing to default agent.")
         return self.agents[0].process(task) # Fallback to the first agent
 ```
@@ -125,7 +139,7 @@ system.route_task("Heavy traffic reported on the main highway.")
 system.route_task("Building fire reported downtown, requires immediate emergency dispatch.")
 ```
 
-This simple routing mechanism already demonstrates the core benefit: tasks are handled by agents with the most relevant expertise, leading to better outcomes.
+This simple routing mechanism demonstrates the core idea: tasks are handled by the agent with the most relevant instructions and tools. The keyword matching in `can_handle` is the weak point ("A car crashed into a traffic light and caught fire" contains "traffic" but is clearly an emergency). In practice, routing is done by a cheap, fast model call that classifies the task into one of the known specialties, using a fixed label set (Chapter 11).
 
 ## Agent Communication: The Foundation of Collaboration
 
@@ -427,7 +441,7 @@ prop = consensus_sys.new_proposal(
 consensus_sys.conduct_vote(prop)
 ```
 
-In this scenario, the Finance agent would likely vote to reject the costly proposal, potentially leading to a tie or rejection, forcing the agents to negotiate a more cost-effective solution.
+In this scenario the Traffic and Emergency agents approve (the proposal concerns both their domains) and the Finance agent rejects it on cost, so the proposal passes 2–1. Simple majority voting hides that dissent, though. Real systems usually need more than a head count: weighting votes by relevance, giving certain agents a veto (a safety agent should be able to block a proposal on its own), requiring a quorum, and recording the reasons behind each vote so a human can review a contested decision.
 
 ## Conclusion
 
@@ -447,3 +461,5 @@ These principles are the foundation for building everything from a small team of
 - Multiagent Systems: A survey from a machine learning perspective (Peter Stone, Manuela Veloso): https://www.cs.utexas.edu/~pstone/Papers/bib2html/b2hd-MASsurvey.html
 - Multiagent Systems, MIT Press, 2013 (Book): http://the-mas-book.info/
 - How to Build Multi Agent AI System (Aalpha): https://www.aalpha.net/blog/how-to-build-multi-agent-ai-system/
+- How we built our multi-agent research system (Anthropic, 2025): https://www.anthropic.com/engineering/built-multi-agent-research-system
+- Building effective agents: orchestrator-workers and other patterns (Anthropic, 2024): https://www.anthropic.com/engineering/building-effective-agents
