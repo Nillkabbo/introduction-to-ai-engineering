@@ -1,6 +1,8 @@
 # Chapter 18: Architecting Real-Time AI Applications
 
-In many modern applications, "fast" is not fast enough. We need "now." Imagine an AI monitoring a factory floor; a 30-second delay in analyzing a critical temperature spike could be the difference between a routine adjustment and a catastrophic failure. Consider a financial trading bot; a half-second lag could represent millions of dollars in lost opportunity. This is the domain of real-time AI.
+In many modern applications, "fast" is not fast enough. We need "now." Imagine an AI monitoring a factory floor; a 30-second delay in analyzing a critical temperature spike could be the difference between a routine adjustment and a costly failure. This is the domain of real-time AI.
+
+First, a reality check on latency. An LLM call typically takes from a few hundred milliseconds to many seconds, and reasoning models can take longer; the time varies from call to call and depends on a third-party service. That rules LLMs out of hard real-time control loops (stopping a machine within milliseconds, high-frequency trading). The real-time architectures in this chapter therefore follow one principle: **fast, deterministic code handles the critical path; LLMs add analysis and explanation off to the side**, as quickly as they can.
 
 Real-time AI systems are designed to process data, reason, and act with minimal latency. They don't just respond to user requests; they react to a constantly changing world. This chapter will guide you through the architectural patterns and technologies required to build these highly responsive, event-driven AI applications. We will transform our thinking from the simple request-response model to a continuous, asynchronous flow.
 
@@ -20,17 +22,19 @@ By the end of this chapter, you will be able to:
 The traditional, synchronous approach to software development is fundamentally at odds with the demands of real-time systems. Let's examine a naive monitoring function to understand why.
 
 ```python
+import time
+import openai
+
+client = openai.OpenAI()
+
 # A synchronous, blocking approach. This is NOT suitable for real-time.
 def traditional_monitoring(sensor_readings):
     print(f"Starting analysis of {len(sensor_readings)} readings...")
     start_time = time.time()
     
     for reading in sensor_readings:
-        # Each API call blocks the entire process for 1-3 seconds.
-        response = openai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": f"Analyze this reading: {reading}"}]
-        )
+        # Each API call blocks the entire process for one to several seconds.
+        client.responses.create(model="gpt-6-luna", input=f"Analyze this reading: {reading}")
         print(f"Analyzed reading {reading['id']}.")
 
     print(f"Finished in {time.time() - start_time:.2f} seconds.")
@@ -38,7 +42,7 @@ def traditional_monitoring(sensor_readings):
 
 This simple loop has several fatal flaws for a real-time application:
 
-1.  **Blocking Operations:** The `openai.chat.completions.create` call is a network request that blocks all other work until it completes. If you have 10 readings, the system is frozen for the entire duration.
+1.  **Blocking Operations:** Each API call is a network request that blocks all other work until it completes. If you have 10 readings, the system is frozen for the entire duration.
 2.  **Sequential Processing:** Readings are analyzed one by one. An urgent, critical alert could be stuck waiting behind nine routine checks.
 3.  **No Resilience:** If the fifth API call fails, the entire loop might crash, leaving the remaining readings unanalyzed.
 4.  **Inefficiency:** The same patterns might be analyzed repeatedly, wasting time and money on redundant API calls.
@@ -79,9 +83,13 @@ class ConnectionManager:
             print(f"Client disconnected: {client_id}. Total: {len(self.active_connections)}")
 
     async def broadcast(self, message: str):
-        """Sends a message to all connected clients."""
-        for connection in self.active_connections.values():
-            await connection.send_text(message)
+        """Sends a message to all connected clients, dropping any that have gone away."""
+        # Iterate over a copy: disconnect() modifies the dict.
+        for client_id, connection in list(self.active_connections.items()):
+            try:
+                await connection.send_text(message)
+            except Exception:   # the socket died without a clean disconnect
+                self.disconnect(client_id)
 
 # Create a single, global instance of the manager
 manager = ConnectionManager()
@@ -181,51 +189,42 @@ This architecture is fundamental to building responsive systems. The web server 
 AI API calls are the biggest performance bottleneck and cost center in most AI applications. A smart caching strategy is not just an optimization; it's a necessity.
 
 We'll build a multi-level cache:
--   **L1 Cache (In-Memory):** An in-memory dictionary for ultra-fast access to the most recently used items.
--   **L2 Cache (Redis):** A distributed cache that persists across application restarts and can be shared by multiple server instances.
+-   **L1 Cache (In-Memory):** A small, per-process cache for ultra-fast access to recently used items. It must be **bounded** (or it grows until the process runs out of memory) and must **expire** entries (or it keeps serving answers that Redis has already expired).
+-   **L2 Cache (Redis):** A distributed cache shared by all server instances that survives application restarts.
 
 ```python
 import hashlib
 import json
-from typing import Optional
+from cachetools import TTLCache   # pip install cachetools
 
 class AICache:
-    """A multi-level cache for AI responses."""
-    def __init__(self, redis_client):
-        self.redis = redis_client
-        self.memory_cache = {} # L1 Cache
+    """A two-level cache for AI responses."""
+    def __init__(self, redis_client, l1_size: int = 1_000, l1_ttl_seconds: int = 60):
+        self.redis = redis_client      # create with decode_responses=True so values come back as str
+        self.memory_cache = TTLCache(maxsize=l1_size, ttl=l1_ttl_seconds)   # bounded, expiring L1
 
-    def _generate_key(self, prompt: str, model: str) -> str:
-        """Creates a consistent hash key for a request."""
-        # Include all parameters that affect the output
-        cache_data = {"prompt": prompt, "model": model}
-        return hashlib.sha256(json.dumps(cache_data).encode()).hexdigest()
+    def _generate_key(self, request: dict) -> str:
+        """Hash of every parameter that affects the output (model, instructions, input...)."""
+        return hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
 
-    def get(self, prompt: str, model: str) -> Optional[str]:
-        key = self._generate_key(prompt, model)
-        
-        # 1. Check fast L1 memory cache
-        if key in self.memory_cache:
+    def get(self, request: dict) -> str | None:
+        key = self._generate_key(request)
+        if key in self.memory_cache:                      # 1. fast L1
             return self.memory_cache[key]
-            
-        # 2. Check slower L2 Redis cache
-        cached_result = self.redis.get(f"ai_cache:{key}")
-        if cached_result:
-            # Promote to L1 cache for next time
-            self.memory_cache[key] = cached_result
-            return cached_result
-            
-        return None
+        cached = self.redis.get(f"ai_cache:{key}")        # 2. shared L2
+        if cached is not None:
+            self.memory_cache[key] = cached               # promote to L1
+        return cached
 
-    def set(self, prompt: str, model: str, response: str, ttl_seconds: int = 3600):
-        key = self._generate_key(prompt, model)
-        
-        # Set in both L1 and L2 caches
+    def set(self, request: dict, response: str, ttl_seconds: int = 3600):
+        key = self._generate_key(request)
         self.memory_cache[key] = response
         self.redis.setex(f"ai_cache:{key}", ttl_seconds, response)
 ```
 
-By wrapping our AI calls in this cache, we can avoid re-computing answers for frequently asked questions, dramatically improving speed and reducing costs. For example, a request to "analyze normal operating parameters" should be cached for a long time, while an analysis of a "real-time critical alert" should have a very short cache duration.
+Keep the L1 lifetime short: each server has its own copy, so after an update one server may serve an older answer than another until its L1 entry expires.
+
+By wrapping our AI calls in this cache, we avoid re-computing answers to repeated requests, improving speed and reducing costs. Choose lifetimes per use case: an explanation of "normal operating parameters" can be cached for a long time, while the analysis of a live critical alert should usually not be cached at all, because the situation it describes is changing.
 
 ## Managing Load: Rate Limiting and Priority Queues
 
@@ -238,6 +237,9 @@ A popular real-time system can be easily overwhelmed with requests. We need mech
 Let's see how a priority queue can be implemented.
 
 ```python
+import json
+import time
+
 class PriorityQueue:
     def __init__(self, redis_client):
         self.redis = redis_client
@@ -259,7 +261,7 @@ class PriorityQueue:
         return None
 ```
 
-In our application, instead of calling a Celery task directly, we would enqueue it. Our Celery workers would then pull tasks from this priority queue, ensuring that the most important work always gets done first.
+This queue is self-contained: you would run your own worker processes that loop on `dequeue()`. (Because members are JSON strings, give each task a unique ID; two identical tasks would otherwise collapse into one entry.) If you use Celery instead, you don't need a custom queue: Celery supports priorities natively (with RabbitMQ's priority queues, or emulated on Redis), and the simplest robust design is often separate queues, such as `critical` and `routine`, with dedicated workers for the critical one, so urgent work never waits behind a backlog.
 
 ## Complete System: Real-Time IoT Anomaly Detection
 

@@ -1,334 +1,273 @@
 # Chapter 21: AI Application Cost Optimization
 
-When you first begin building with AI, the focus is on what's possible. The creative energy is high, and the results can feel magical. Then, the first monthly invoice from your AI provider arrives, and a different kind of magic trick appears: making your budget disappear.
+When you first begin building with AI, the focus is on what's possible. The creative energy is high, and the results can feel magical. Then the first monthly invoice from your AI provider arrives, and a different kind of magic trick appears: making your budget disappear.
 
-A startup I worked with learned this the hard way. They built a brilliant AI-powered customer service bot that was incredibly effective at solving user problems—and even more effective at burning through their runway. Their monthly AI API bill ballooned to over $50,000. The problem wasn't that AI is inherently expensive; it was that they treated AI API calls like any other web service call, without considering their unique cost structure. They had built a Ferrari and were using it to make daily grocery runs.
+A startup I worked with learned this the hard way. They built a customer service bot that was very effective at solving user problems, and even more effective at burning through their runway: their monthly AI bill grew past $50,000. The problem wasn't that AI is inherently expensive; it was that they treated model calls like any other web service call, without considering their unique cost structure.
 
-This chapter is about learning to drive that Ferrari efficiently. We will explore a suite of battle-tested strategies that can reduce your AI API costs by 50-90% while maintaining, and often even improving, the quality and performance of your application.
+This chapter is about the levers that actually move an AI bill. Applied in the right order (measure first, then the "free" savings, then trade-offs), they routinely cut costs by half or more without hurting quality.
 
 ### Learning Objectives
 
 By the end of this chapter, you will be able to:
 
--   Master techniques for dramatically reducing AI API costs.
--   Implement intelligent caching strategies, including semantic caching, to minimize redundant calls.
--   Design efficient batch processing systems that maximize token value.
--   Build smart model selection algorithms that choose the cheapest effective model for any given task.
--   Create cost monitoring dashboards with alerts to prevent budget overruns.
--   Calculate the Return on Investment (ROI) for your AI features to justify business value.
+-   Understand what you are billed for, including cached input and reasoning tokens.
+-   Measure costs from the provider's reported usage instead of estimates.
+-   Use the two biggest levers available today: **prompt caching** and **Batch APIs**.
+-   Control output and reasoning costs, and route requests to the cheapest model that works.
+-   Use response caching (including semantic caching) safely.
+-   Calculate the return on investment (ROI) of an AI feature.
 
 ## Understanding the AI Cost Structure
 
-Before optimizing, we must understand what we're paying for. AI API pricing is unlike traditional cloud services. It's a consumption-based model centered on a single unit: the **token**.
+AI API pricing is consumption-based, and the unit is the **token** (Chapter 2). A request's cost has several components, each priced per million tokens:
 
-### The Token Economy: Not All Words Are Created Equal
+-   **Input tokens:** everything you send (system prompt, tool definitions, conversation history, documents, the user's message).
+-   **Cached input tokens:** input that matches a prefix the provider has recently processed, billed at a large discount (commonly 90% off or more). Some providers also charge a small premium the first time a prefix is written to the cache.
+-   **Output tokens:** everything the model generates, typically 4–8× the price of input.
+-   **Reasoning tokens:** on reasoning models, the internal "thinking" tokens. You don't see them (or see only a summary), but **they are billed as output tokens**, and on hard problems they can outnumber the visible answer many times over.
 
-As we learned in Chapter 2, AI models process text in chunks called tokens. You are billed for both the tokens you send in your prompt (**input tokens**) and the tokens the AI generates in its response (**output tokens**). Critically, different models have vastly different prices, and output tokens are often more expensive than input tokens.
+Prices differ enormously between model tiers, often by a factor of 20 to 50 between a provider's cheapest and most capable model, and they change frequently. Keep prices in configuration and check the providers' pricing pages; never hard-code them deep in application logic.
 
-Let's build a `TokenCostCalculator` to make this concrete.
+### Measure from Usage, Not Estimates
+
+Every API response reports exactly what you were billed for. Use those numbers, not a local tokenizer, which is only an approximation (and wrong for other providers' models).
 
 ```python
-# cost_calculator.py - A tool for understanding and comparing API costs
-from typing import Dict
-import tiktoken
+import openai
 
-class TokenCostCalculator:
-    """Calculates the cost of AI API calls based on model and token count."""
-    
-    # Prices are per 1 million tokens ($/1M tokens). Check provider websites for current pricing.
-    PRICING_PER_MILLION_TOKENS = {
-        # OpenAI
-        "gpt-4o": {"input": 5.00, "output": 15.00},
-        "gpt-4o-mini": {"input": 0.15, "output": 0.60},
-        # Anthropic
-        "claude-3-5-sonnet-20240620": {"input": 3.00, "output": 15.00},
-        "claude-3-haiku-20240307": {"input": 0.25, "output": 1.25},
-        # Google
-        "gemini-1.5-pro": {"input": 3.50, "output": 10.50},
-        "gemini-1.5-flash": {"input": 0.35, "output": 1.05},
+client = openai.OpenAI()
+MODEL = "gpt-6-luna"
+
+# Illustrative prices in USD per 1M tokens (verify on the providers' pricing pages).
+PRICES = {
+    "gpt-6-luna":        {"input": 0.10, "cached_input": 0.01, "output": 0.50},
+    "claude-haiku-5-5":  {"input": 0.10, "cached_input": 0.01, "output": 0.50},
+    "claude-sonnet-5-5": {"input": 2.00, "cached_input": 0.20, "output": 10.00},
+    "claude-opus-5-5":   {"input": 4.00, "cached_input": 0.20, "output": 20.00},
+}
+
+def openai_call_cost(response) -> float:
+    """Exact cost of one Responses API call, from its usage report."""
+    p = PRICES[MODEL]
+    usage = response.usage
+    cached = usage.input_tokens_details.cached_tokens       # included in input_tokens
+    uncached = usage.input_tokens - cached
+    return (uncached * p["input"] + cached * p["cached_input"] + usage.output_tokens * p["output"]) / 1_000_000
+
+response = client.responses.create(model=MODEL, input="Summarize: GW-03 rebooted 4 times overnight; uplink RSSI -95 dBm.")
+print(f"Output tokens: {response.usage.output_tokens} "
+      f"(of which reasoning: {response.usage.output_tokens_details.reasoning_tokens})")
+print(f"Cost: ${openai_call_cost(response):.6f}")
+```
+
+Each provider reports usage slightly differently (for example, Anthropic reports `cache_read_input_tokens` and `cache_creation_input_tokens` separately from `input_tokens`), so write one small cost function per provider. Then **log the cost of every call** with the feature, user, and model that caused it (Chapter 23). The first time you do this, you will usually find that one or two features, or one runaway loop, account for most of the bill. Optimize those first.
+
+### Where the Money Hides
+
+-   **Context accumulation:** Chat applications resend the whole history every turn, so the input cost of a conversation grows roughly quadratically with its length.
+-   **Bloated prompts:** Long system prompts, many tool definitions, and too many retrieved documents are paid for on *every* call.
+-   **Uncapped reasoning and output:** High reasoning effort on simple tasks, and verbose answers no one reads.
+-   **Retries and agent loops:** A failing validation retried five times, or an agent that wanders for 30 steps, multiplies the cost of a task.
+-   **The wrong model:** A frontier model doing a job a small model does equally well.
+
+## Lever 1: Prompt Caching (Provider-Side)
+
+This is usually the largest and easiest saving available today. When many requests share the same *prefix* (the same long system prompt, tool definitions, few-shot examples, or document), the provider can reuse its processing of that prefix. Cached input is billed at a fraction of the normal price and processed faster.
+
+-   **OpenAI** applies caching automatically to sufficiently long prompts; check `usage.input_tokens_details.cached_tokens` to see it working.
+-   **Anthropic** caches when you ask: add `cache_control` (Chapter 6 shows the code).
+-   **Google** offers implicit caching on recent models plus explicit cache objects for large, reused content.
+
+Caching matches the prefix **exactly**, so the rule is: **stable content first, variable content last.**
+
+```python
+# Good: identical prefix on every call -> cacheable
+SYSTEM_PROMPT = open("support_playbook.md").read()   # thousands of tokens, rarely changes
+
+def answer_ticket(ticket_text: str) -> str:
+    return client.responses.create(
+        model=MODEL,
+        instructions=SYSTEM_PROMPT,       # stable: first
+        input=ticket_text,                # variable: last
+    ).output_text
+
+# Bad: a timestamp at the top changes the prefix on every call -> nothing is ever cached
+# instructions = f"Current time: {datetime.now()}\n\n{SYSTEM_PROMPT}"
+```
+
+Common silent cache-breakers: timestamps or request IDs near the start of the prompt, tool lists in a non-deterministic order, and JSON serialized without sorted keys. Verify with the usage fields that your cache hit rate is what you expect.
+
+## Lever 2: Batch APIs for Non-Urgent Work
+
+OpenAI, Anthropic, and Google all offer **Batch APIs**: you upload many requests at once, they are processed asynchronously (results typically within 24 hours, often much sooner), and you pay roughly **50% of the normal price**. Batch jobs also have separate, larger rate limits.
+
+Anything that doesn't need an answer in seconds is a candidate: nightly report generation, classifying or summarizing a backlog of tickets or logs, generating embeddings for a document collection, and running your evaluation suite (Chapter 24).
+
+```python
+import json
+
+# 1. Write one request per line (JSONL). custom_id lets you match results to inputs.
+log_entries = {"log-001": "GW-03 rebooted 4 times overnight", "log-002": "TEMP-12 reading -999.0"}
+with open("batch_input.jsonl", "w") as f:
+    for custom_id, text in log_entries.items():
+        f.write(json.dumps({
+            "custom_id": custom_id,
+            "method": "POST",
+            "url": "/v1/responses",
+            "body": {"model": MODEL, "input": f"Classify this IoT log as Power, Connectivity, or Sensor_Fault: {text}"},
+        }) + "\n")
+
+# 2. Upload the file and create the batch.
+batch_file = client.files.create(file=open("batch_input.jsonl", "rb"), purpose="batch")
+batch = client.batches.create(input_file_id=batch_file.id, endpoint="/v1/responses", completion_window="24h")
+print(batch.id, batch.status)
+
+# 3. Later: when client.batches.retrieve(batch.id).status == "completed",
+#    download the output file (client.files.content(batch.output_file_id)) and match lines by custom_id.
+```
+
+## Lever 3: Control Output and Reasoning
+
+Output tokens are the most expensive tokens, and reasoning tokens are output tokens.
+
+-   **Set reasoning effort per task.** Use low effort for extraction, classification, and routing, and reserve high effort for genuinely hard problems. This is often the single biggest cost lever *within* one model, so measure quality at each level instead of defaulting to the highest.
+-   **Ask for the length you need.** "Answer in at most three sentences" or a compact JSON schema (Chapter 11) beats letting the model write an essay.
+-   **Cap output with `max_output_tokens`** as a safety net against runaway generations (leaving enough room for reasoning, Chapter 5).
+
+## Lever 4: Trim the Input You Send on Every Call
+
+Concise wording matters far less than the large blocks of context you resend:
+
+-   **Conversation history:** keep a window of recent turns and summarize older ones (Chapter 2).
+-   **Retrieved documents:** retrieve fewer, better chunks (reranking, Chapter 27) instead of stuffing ten "just in case."
+-   **Tool definitions:** send only the tools relevant to the current task.
+
+What *doesn't* help much: shaving polite words from a one-line instruction, or replacing newlines with `|` characters. Formatting characters are cheap, and clear structure often improves accuracy, so a "compressed" prompt that confuses the model costs more in retries than it saves.
+
+## Lever 5: Route to the Cheapest Model That Works
+
+Not every task needs the most capable model. A **model router** sends each request to the cheapest model that handles it well.
+
+```python
+class SmartModelRouter:
+    """Routes requests by task type. The tiers and model names come from configuration."""
+    TIERS = {
+        "simple":   {"model": "gpt-6-luna", "effort": "low"},      # classification, extraction, short answers
+        "moderate": {"model": "gpt-6-luna", "effort": "medium"},   # summaries, standard Q&A
+        "complex":  {"model": "gpt-6-sol",  "effort": "high"},     # multi-step reasoning, planning, code
     }
 
-    def __init__(self):
-        # We use a single tokenizer for estimation purposes.
-        # While not perfectly accurate for all models, it's a good approximation.
-        self.encoder = tiktoken.encoding_for_model("gpt-4o")
+    def classify_task(self, task_type: str) -> str:
+        # Route on information you already have (the feature or endpoint) whenever possible.
+        return {"tag_log": "simple", "summarize": "moderate", "plan_maintenance": "complex"}.get(task_type, "moderate")
 
-    def calculate_cost(self, model: str, input_text: str, output_text: str) -> dict:
-        """Calculates the cost for a single input/output pair."""
-        if model not in self.PRICING_PER_MILLION_TOKENS:
-            raise ValueError(f"Pricing for model '{model}' not found.")
-            
-        pricing = self.PRICING_PER_MILLION_TOKENS[model]
-        
-        input_tokens = len(self.encoder.encode(input_text))
-        output_tokens = len(self.encoder.encode(output_text))
-        
-        input_cost = (input_tokens / 1_000_000) * pricing["input"]
-        output_cost = (output_tokens / 1_000_000) * pricing["output"]
-        
-        return {
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "total_cost": input_cost + output_cost
-        }
+    def run(self, task_type: str, prompt: str) -> str:
+        tier = self.TIERS[self.classify_task(task_type)]
+        return client.responses.create(
+            model=tier["model"], input=prompt, reasoning={"effort": tier["effort"]}
+        ).output_text
 
-# --- Example Usage ---
-calculator = TokenCostCalculator()
-
-# Simulate a typical API call
-prompt = "Summarize the key issues from the following IoT device logs: [long log data...]"
-response = "Key issues identified: 1. Intermittent connectivity on 15% of devices. 2. Battery drain anomaly on Sensor-042. 3. Firmware update v2.1 failed on Gateway-03."
-
-# Let's compare the cost of this single operation across different models
-print("--- Cost Comparison for a Single Analysis Task ---")
-for model_name in calculator.PRICING_PER_MILLION_TOKENS:
-    cost_info = calculator.calculate_cost(model_name, prompt, response)
-    print(f"{model_name:<30} | Total Cost: ${cost_info['total_cost']:.6f}")
+router = SmartModelRouter()
+print(router.run("tag_log", "Tag this log line: 'TEMP-12 reading -999.0'"))
 ```
-This simple analysis reveals a powerful insight: running the same task on `claude-3-haiku` is significantly cheaper than on `gpt-4o`. Choosing the right model for the job is your first and most impactful cost optimization lever.
 
-### The Hidden Costs
+Routing on the *feature* (which endpoint or job the request comes from) is far more reliable than guessing complexity from keywords in the prompt. When you do need to classify free-form requests, use a small model with a fixed label set. Two cautions from practice: before building a multi-model cascade, compare against the simpler option of one capable model at lower reasoning effort, which is often just as cheap per *completed* task; and a "try cheap, fall back to expensive if validation fails" loop only saves money if the cheap model passes most of the time and your validation is reliable.
 
-Your API bill is more than just the sum of individual calls. Several factors contribute to hidden or inflated costs:
--   **Retry Costs:** Failed API calls that are retried still consume resources and may incur costs depending on the failure type.
--   **Context Accumulation:** In conversational bots, the entire chat history is often sent with each new message, causing the input token count (and cost) to grow with every turn.
--   **Over-reliance on Expensive Models:** Using a top-tier model for simple tasks is like using a sledgehammer to crack a nut—effective, but unnecessarily expensive.
+## Lever 6: Response Caching, Done Safely
 
-A comprehensive cost tracking system is essential to get a true picture of your spending.
+If identical requests recur (FAQ answers, repeated report sections), an application-level cache can skip the call entirely (Chapter 8 shows a Redis implementation keyed on every parameter that affects the output).
 
-## Strategy 1: Intelligent Caching
-
-**Caching is the single most effective strategy for reducing AI costs.** Many user queries are repetitive. If you can answer a query with a cached response instead of making a new API call, the cost of that query drops to nearly zero.
-
-### Semantic Caching: Beyond Exact Matches
-
-Traditional caching relies on an exact match of the input string. This is too brittle for AI applications, where users can ask the same question in many different ways. **Semantic caching** solves this problem. It determines if a new query is *semantically similar* to a previously answered one.
-
-**Workflow:**
-1.  When a query comes in, generate an embedding (a numerical representation of its meaning).
-2.  Search your cache (a vector database) for existing queries with similar embeddings.
-3.  If a highly similar query is found (e.g., cosine similarity > 0.95), return its cached response.
-4.  If not, make a new API call, then store the new query, its embedding, and the response in the cache.
+**Semantic caching** extends this to paraphrases: embed the query, find a previous query with high cosine similarity, and return its answer. It can raise hit rates, but it is easy to get dangerously wrong: queries that differ in one crucial detail are often nearly identical in embedding space.
 
 ```python
-# semantic_cache.py - A simple implementation of a semantic cache
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer
 
 class SemanticCache:
-    def __init__(self, similarity_threshold=0.9):
-        self.threshold = similarity_threshold
-        # In production, use a real embedding model and vector DB.
-        # TfidfVectorizer is a simple substitute for this demonstration.
-        self.vectorizer = TfidfVectorizer()
-        self.cached_queries = []
-        self.cached_embeddings = []
-        self.responses = {}
+    """Embedding-based cache with a guard for entity mismatches."""
+    def __init__(self, threshold: float = 0.95):
+        self.threshold = threshold
+        self.entries: list[tuple[np.ndarray, str, str]] = []   # (embedding, query, response)
+
+    def _embed(self, text: str) -> np.ndarray:
+        data = client.embeddings.create(model="text-embedding-3-small", input=text).data[0].embedding
+        return np.array(data)   # OpenAI embeddings are unit-length, so dot product = cosine similarity
+
+    @staticmethod
+    def _entities(text: str) -> set[str]:
+        # Tokens containing digits: device IDs, dates, amounts. "T-101" and "T-102" must never share an answer.
+        return {tok.strip("?.,!").upper() for tok in text.split() if any(c.isdigit() for c in tok)}
 
     def get(self, query: str) -> str | None:
-        if not self.cached_queries:
+        if not self.entries:
             return None
-
-        query_embedding = self.vectorizer.transform([query])
-        similarities = cosine_similarity(query_embedding, self.cached_embeddings)
-        
-        most_similar_index = np.argmax(similarities[0])
-        if similarities[0][most_similar_index] >= self.threshold:
-            best_match_query = self.cached_queries[most_similar_index]
-            print(f"-> Semantic cache hit! Matched '{query}' with '{best_match_query}'")
-            return self.responses.get(best_match_query)
-            
+        q = self._embed(query)
+        scores = [float(q @ emb) for emb, _, _ in self.entries]
+        best = int(np.argmax(scores))
+        _, cached_query, cached_response = self.entries[best]
+        if scores[best] >= self.threshold and self._entities(query) == self._entities(cached_query):
+            return cached_response
         return None
 
-    def set(self, query: str, response: str):
-        print(f"-> Caching new response for: '{query}'")
-        self.cached_queries.append(query)
-        self.responses[query] = response
-        # Refit the vectorizer and transform all queries
-        self.cached_embeddings = self.vectorizer.fit_transform(self.cached_queries)
+    def set(self, query: str, response: str) -> None:
+        self.entries.append((self._embed(query), query, response))
 ```
 
-By caching based on meaning, you can handle variations like "What's the status of sensor T-101?" and "Tell me the status for T-101" with a single API call.
-
-## Strategy 2: Smart Model Selection
-
-Not every task requires the most powerful (and expensive) AI model. A simple classification or data extraction task can often be handled perfectly by a cheaper, faster model like `gpt-4o-mini` or `claude-3-haiku`.
-
-An intelligent **model router** is a system that classifies an incoming query and routes it to the most cost-effective model capable of handling the task.
-
-```python
-# model_router.py - A system for intelligent model routing
-class SmartModelRouter:
-    def __init__(self):
-        # Define models by capability tiers (cheapest to most expensive)
-        self.model_tiers = {
-            "simple": "gemini-1.5-flash",
-            "moderate": "gpt-4o-mini",
-            "complex": "claude-3-5-sonnet-20240620",
-            "critical": "gpt-4o"
-        }
-
-    def classify_query_complexity(self, query: str) -> str:
-        """Classifies a query's complexity to determine the required model tier."""
-        query_lower = query.lower()
-        if any(keyword in query_lower for keyword in ["design", "optimize", "strategize"]):
-            return "complex"
-        if any(keyword in query_lower for keyword in ["analyze", "summarize", "compare"]):
-            return "moderate"
-        return "simple"
-
-    def select_model(self, query: str) -> str:
-        """Selects the most cost-effective model for a given query."""
-        complexity = self.classify_query_complexity(query)
-        selected_model = self.model_tiers[complexity]
-        print(f"-> Query classified as '{complexity}'. Routing to model: {selected_model}")
-        return selected_model
-
-# --- Example Usage ---
-router = SmartModelRouter()
-
-simple_query = "What is the status of device SENSOR-123?"
-complex_query = "Analyze the last 24 hours of sensor data for SENSOR-123 and design a predictive maintenance schedule."
-
-# The router chooses a cheap model for the simple query
-selected_model_1 = router.select_model(simple_query) 
-
-# And a more powerful model for the complex one
-selected_model_2 = router.select_model(complex_query) 
-```
-
-### Quality Assurance Fallback Loop
-
-To ensure quality isn't sacrificed for cost, you can implement a fallback loop. If the cheaper model's response fails a validation check, the system automatically retries with a more powerful model.
-
-```python
-def query_with_fallback(query: str, validation_fn) -> str:
-    """Queries with a cheap model first, falling back to a better one if quality is low."""
-    router = SmartModelRouter()
-    
-    # Try with the recommended cheap model first
-    cheap_model = router.select_model(query)
-    cheap_response = ask_ai(query, model=cheap_model) # ask_ai would be your API call function
-    
-    if validation_fn(cheap_response):
-        return cheap_response
-    else:
-        print(f"-> Quality check failed for {cheap_model}. Retrying with a more powerful model...")
-        # Fallback to a more powerful model
-        powerful_model = "gpt-4o"
-        return ask_ai(query, model=powerful_model)
-```
-
-## Strategy 3: Batch Processing
-
-For non-real-time workloads, making one large API call is significantly cheaper than making many small ones due to per-request overhead and better token compression. **Batch processing** involves collecting multiple small tasks and combining them into a single prompt.
-
-```python
-# batch_processor.py
-from typing import List
-
-def batch_analyze_logs(log_entries: List[str]) -> List[str]:
-    """Analyzes a batch of log entries in a single API call."""
-    
-    # Combine all logs into a single, structured prompt
-    combined_prompt = "Analyze each of the following log entries and provide a one-sentence summary for each. Respond with a numbered list corresponding to the input logs.\n\n"
-    for i, log in enumerate(log_entries):
-        combined_prompt += f"{i+1}. {log}\n"
-
-    # One API call for the whole batch
-    response = ask_ai(combined_prompt)
-    
-    # Parse the numbered list response
-    summaries = [line.split('.', 1)[1].strip() for line in response.split('\n') if line.strip()]
-    return summaries
-
-# Instead of 10 API calls, we make just one.
-logs = [f"Log entry #{i}" for i in range(10)]
-batch_summaries = batch_analyze_logs(logs)
-```
-
-## Strategy 4: Prompt Optimization
-
-As we've learned, tokens are money. Optimizing your prompts to be as concise as possible while retaining all necessary context is a high-leverage activity.
-
--   **Remove Redundancy:** Eliminate conversational filler ("Please," "Thank you," "Could you possibly...").
--   **Use Shorthand:** Instruct the AI to understand abbreviations (e.g., `temp` for `temperature`, `dev` for `device`).
--   **Structure with Tokens, Not Whitespace:** Use characters like `|` or `#` to structure your prompt instead of newlines and tabs, which consume tokens.
-
-```python
-# Verbose prompt (more tokens)
-verbose_prompt = """
-Please analyze the following sensor data and provide a detailed summary.
-- Temperature: 75 degrees Fahrenheit
-- Humidity: 45 percent
-"""
-
-# Optimized prompt (fewer tokens)
-optimized_prompt = "Analyze sensor data | Temp: 75F | Humidity: 45%"
-```
+Note that every lookup costs an embedding call (cheap, but not free) and adds latency. In production, store the vectors in a vector index (Chapter 27), give entries an expiry, use semantic caching only for content that doesn't depend on the user or on fast-changing data, and measure the false-hit rate before turning it on.
 
 ## Calculating Return on Investment (ROI)
 
-Cost optimization is meaningless without understanding the value the AI feature provides. Calculating ROI helps justify the expense and prioritize features.
+Cost optimization is meaningless without understanding the value the AI feature provides.
 
-The formula is simple:
-`ROI = (Value Gained - Cost of Investment) / Cost of Investment`
+`ROI = (Value Gained - Total Cost) / Total Cost`
 
 ```python
+import json
+
 class ROICalculator:
     def __init__(self, human_analyst_hourly_rate: float = 75.0):
         self.hourly_rate = human_analyst_hourly_rate
 
-    def calculate_iot_feature_roi(self, monthly_api_cost: float, time_saved_per_month_hours: int, revenue_increase_per_month: float):
-        # Cost of Investment (Monthly)
-        cost = monthly_api_cost
-
-        # Value Gained (Monthly)
-        value_from_time_saved = time_saved_per_month_hours * self.hourly_rate
-        total_value = value_from_time_saved + revenue_increase_per_month
-        
-        # ROI Calculation
-        net_gain = total_value - cost
-        roi_percentage = (net_gain / cost) * 100 if cost > 0 else float('inf')
-        
+    def calculate_feature_roi(self, monthly_api_cost: float, monthly_other_costs: float,
+                              hours_saved_per_month: float, revenue_increase_per_month: float) -> dict:
+        cost = monthly_api_cost + monthly_other_costs     # include hosting, tooling, and maintenance time
+        value = hours_saved_per_month * self.hourly_rate + revenue_increase_per_month
         return {
             "monthly_cost": cost,
-            "monthly_value": total_value,
-            "monthly_net_gain": net_gain,
-            "roi_percentage": roi_percentage
+            "monthly_value": value,
+            "monthly_net_gain": value - cost,
+            "roi_percentage": (value - cost) / cost * 100 if cost > 0 else float("inf"),
         }
 
-# --- Example ---
-roi_calc = ROICalculator()
-predictive_maintenance_roi = roi_calc.calculate_iot_feature_roi(
-    monthly_api_cost=1500,           # e.g., after optimization
-    time_saved_per_month_hours=80,   # Human analysts no longer need to manually check logs
-    revenue_increase_per_month=5000 # Value of prevented downtime
+roi = ROICalculator().calculate_feature_roi(
+    monthly_api_cost=1500,             # after optimization
+    monthly_other_costs=2000,          # hosting, monitoring, a share of engineering time
+    hours_saved_per_month=80,          # analysts no longer triage logs by hand
+    revenue_increase_per_month=5000,   # estimated value of prevented downtime
 )
-print("--- Predictive Maintenance Feature ROI ---")
-print(json.dumps(predictive_maintenance_roi, indent=2))
+print(json.dumps(roi, indent=2))
 ```
-This analysis clearly shows that even with a $1,500 monthly cost, the feature generates a massive positive return, making it a worthwhile investment.
+
+With these numbers the feature returns a positive ROI even after counting the non-API costs, which people often forget. The hard part is not the formula but honest inputs: measure hours saved and downtime prevented, rather than assuming them.
 
 ## Conclusion
 
-Cost optimization is not just about cutting expenses; it's about maximizing value. By treating your AI API usage as a precious resource, you can build applications that are both powerful and economically sustainable.
+Cost optimization is about maximizing value per dollar, not just cutting spending. Work through the levers in order:
 
-Remember the key strategies:
-1.  **Cache Intelligently:** Use semantic caching to serve similar requests without new API calls.
-2.  **Route Smartly:** Use the cheapest model that can reliably do the job. Implement quality fallbacks.
-3.  **Batch Aggressively:** Combine non-urgent tasks into single, efficient API calls.
-4.  **Engineer Your Prompts:** Squeeze every unnecessary token out of your prompts.
-5.  **Measure Everything:** You cannot optimize what you do not measure. Implement comprehensive cost tracking and ROI analysis from day one.
+1.  **Measure** cost per call, per feature, and per completed task from the providers' usage reports.
+2.  **Cache prompt prefixes:** stable content first, variable content last.
+3.  **Batch** everything that isn't interactive, at about half the price.
+4.  **Control output and reasoning effort** per task.
+5.  **Trim the large inputs** (history, retrieved context, tool lists), not the small words.
+6.  **Route** each task to the cheapest model that passes your evals.
+7.  **Cache responses** where repeats are acceptable, and semantic caching only with safeguards.
 
-The startup that was spending $50,000 a month? By implementing these very techniques, they reduced their bill to under $8,000 while improving their service's responsiveness. Your AI application can achieve the same transformation.
+The startup that was spending $50,000 a month? By measuring first and then applying these techniques, they reduced their bill to under $8,000 while improving their service's responsiveness.
 
 # References and Further Reading
 
+- Prompt caching (OpenAI). https://platform.openai.com/docs/guides/prompt-caching
+- Batch API (OpenAI). https://platform.openai.com/docs/guides/batch
+- Prompt caching (Claude documentation). https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+- Batch processing (Claude documentation). https://platform.claude.com/docs/en/build-with-claude/batch-processing
+- Context caching (Gemini API). https://ai.google.dev/gemini-api/docs/caching
 - [Three proven strategies for optimizing AI costs (Google Cloud, 2024)](https://cloud.google.com/transform/three-proven-strategies-for-optimizing-ai-costs)
-- [AI Cost Optimization Strategies For AI-First Organizations (CloudZero, 2025)](https://www.cloudzero.com/blog/ai-cost-optimization/)
-- [The Economics of AI: Cost Optimization Strategies for a Successful AI Business (Samsung SDS, 2024)](https://www.samsungsds.com/us/blog/the-economics-of-ai.html)
-- [AI Application Development Cost: Key Estimation and Optimization Strategies (Index.dev, 2024)](https://www.index.dev/blog/estimating-optimizing-cost-developing-ai-application)
-- [AI-Powered Cost Optimization: How Smart Companies Are Slashing Expenses and Boosting Efficiency in 2025 (ISG, 2025)](https://isg-one.com/research/articles/full-article/ai-powered-cost-optimization--how-smart-companies-are-slashing-expenses-and-boosting-efficiency-in-2025)
-- [6 Ways AI Can Help Your Cost-Reduction Strategy (BiztechCS, 2024)](https://www.biztechcs.com/blog/6-ways-ai-can-help-your-cost-reduction-strategy/)
