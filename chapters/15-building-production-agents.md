@@ -578,3 +578,9 @@ By choosing the right framework, externalizing state, establishing clear communi
 - Effective context engineering for AI agents (Anthropic, 2025): https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents
 - Lost in the Middle: How Language Models Use Long Contexts (Liu et al., 2023): https://arxiv.org/abs/2307.03172
 - MemGPT: Towards LLMs as Operating Systems (Packer et al., 2023): https://arxiv.org/abs/2310.08560
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 14: Giving Your Agent Tools](14-tool-use-function-calling.md) | [Table of Contents](../README.md) | [Chapter 16: An Introduction to Multi-Agent Systems →](16-multi-agent-systems.md)

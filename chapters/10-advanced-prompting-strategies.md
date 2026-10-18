@@ -471,3 +471,9 @@ These strategies combine well: a chain can include a self-consistency vote at it
 - Reflexion: Language Agents with Verbal Reinforcement Learning (Shinn et al., 2023). https://arxiv.org/abs/2303.11366
 - Large Language Models Cannot Self-Correct Reasoning Yet (Huang et al., 2023). https://arxiv.org/abs/2310.01798
 - Building effective agents: prompt chaining and other workflow patterns (Anthropic, 2024). https://www.anthropic.com/engineering/building-effective-agents
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 9: Fundamental Prompt Engineering](09-fundamental-prompt-engineering.md) | [Table of Contents](../README.md) | [Chapter 11: Mastering Structured Output →](11-structured-output-generation.md)

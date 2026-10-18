@@ -165,7 +165,7 @@ class Config:
     def _get_api_key(self):
         if self.environment == "production":
             # In production, fetch from a secrets manager
-            return get_secret_from_cloud("OPENAI_PROD_KEY")
+            return get_secret("prod/openai-api-key")  # helper from Chapter 22
         return os.getenv("OPENAI_API_KEY") # Loaded from .env locally
 
     def _get_model_name(self):
@@ -389,3 +389,9 @@ By embracing these principles, you are not just deploying code; you are orchestr
 - [AI deployments best practices (Octopus Deploy, 2024)](https://octopus.com/blog/ai-deployments)
 - [Future AI Deployment: Automating Full Lifecycle Management with Rollback Strategies and Cloud Migration (DEV.to, 2025)](https://dev.to/prabhucse/future-ai-deployment-automating-full-lifecycle-management-with-rollback-strategies-and-cloud-34on)
 - [How to Deploy an AI Model to Production Using AWS, GCP, or Azure (DEV.to, 2025)](https://dev.to/raji_moshood_ee3a4c2638f6/how-to-deploy-an-ai-model-to-production-using-aws-gcp-or-azure-3dam)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 24: Testing AI Systems](24-testing-ai-systems.md) | [Table of Contents](../README.md) | [Chapter 26: Fine-Tuning and Custom Models →](26-fine-tuning-custom-models.md)

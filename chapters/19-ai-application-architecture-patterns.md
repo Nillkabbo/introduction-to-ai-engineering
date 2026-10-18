@@ -347,3 +347,9 @@ This architecture effectively separates concerns, enabling independent scaling, 
 - Architectural Patterns to Build End-to-End Data Driven Applications on AWS (AWS Whitepaper): https://docs.aws.amazon.com/whitepapers/latest/build-e2e-data-driven-applications/build-e2e-data-driven-applications.pdf
 - Unlocking the Hidden Power of AI Agents: Design Patterns That Delivered 300% Efficiency Gains (Towards AI): https://pub.towardsai.net/unlocking-the-hidden-power-of-ai-agents-design-patterns-that-delivered-300-efficiency-gains-4a3c947e5438
 - Microservices Architecture in Artificial Intelligence (Medium): https://shivakumar-goniwada.medium.com/microservices-architecture-in-artificial-intelligence-60bac5b4485d
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 18: Architecting Real-Time AI Applications](18-real-time-ai-applications.md) | [Table of Contents](../README.md) | [Chapter 20: Scaling AI Applications →](20-scaling-ai-applications.md)

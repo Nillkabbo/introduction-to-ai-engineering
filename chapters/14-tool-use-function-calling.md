@@ -411,3 +411,9 @@ With these skills, you are ready to build agents that don't just talk about solu
 - Model Context Protocol: specification and documentation. https://modelcontextprotocol.io
 - MCP Python SDK. https://github.com/modelcontextprotocol/python-sdk
 - OWASP Top 10 for LLM Applications (see "Excessive Agency" and "Prompt Injection"). https://genai.owasp.org/llm-top-10/
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 13: From Chatbots to Autonomous Agents](13-introduction-to-ai-agents.md) | [Table of Contents](../README.md) | [Chapter 15: Building Production-Ready Agents →](15-building-production-agents.md)

@@ -371,3 +371,9 @@ You are now equipped to build AI systems that don't just talk, but speak the pre
 - Structured output (Gemini API documentation). https://ai.google.dev/gemini-api/docs/structured-output
 - Pydantic documentation: validators. https://docs.pydantic.dev/latest/concepts/validators/
 - 4. Structured Output (Taming LLMs). https://www.tamingllms.com/notebooks/structured_output.html
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 10: Advanced Prompting Strategies](10-advanced-prompting-strategies.md) | [Table of Contents](../README.md) | [Chapter 12: Domain-Specific Prompting →](12-domain-specific-prompting.md)

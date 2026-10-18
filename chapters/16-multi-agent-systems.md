@@ -14,7 +14,7 @@ By the end of this chapter, you will:
 -   Design and implement basic communication protocols for agent interaction.
 -   Explore different patterns of agent collaboration, including centralized and hierarchical models.
 -   Implement a consensus mechanism to enable agents to make group decisions.
--   Architect a complete smart city coordination system using a multi-agent approach.
+-   Decide when a multi-agent design is worth its extra cost and complexity.
 
 ## Why Multiple Agents? The Power of Specialization
 
@@ -474,3 +474,9 @@ Specialization, structured communication, a fitting collaboration pattern and a 
 - How to Build Multi Agent AI System (Aalpha): https://www.aalpha.net/blog/how-to-build-multi-agent-ai-system/
 - How we built our multi-agent research system (Anthropic, 2025): https://www.anthropic.com/engineering/built-multi-agent-research-system
 - Building effective agents: orchestrator-workers and other patterns (Anthropic, 2024): https://www.anthropic.com/engineering/building-effective-agents
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 15: Building Production-Ready Agents](15-building-production-agents.md) | [Table of Contents](../README.md) | [Chapter 17: Building AI-Powered Web Applications with Python →](17-building-ai-powered-web-applications.md)

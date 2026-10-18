@@ -14,7 +14,7 @@ By the end of this chapter, you will be able to:
 -   Define and track AI-specific metrics for performance, cost, and quality.
 -   Use distributed tracing to follow a request through a complex chain of AI services.
 -   Build a real-time monitoring dashboard for an IoT system using Prometheus and Grafana concepts.
--   Set up automated alerts for critical AI-related issues like cost spikes or high hallucination rates.
+-   Set up automated alerts for critical AI-related issues like cost spikes, error rates, and quality proxies such as validation failures.
 
 ## The Three Pillars of AI Observability
 
@@ -328,6 +328,61 @@ Logs, metrics, and traces tell you whether the system is up, fast, and affordabl
 -   **Sampled evaluation:** score a small, random sample of production traffic with an LLM judge or human reviewers against your quality criteria (Chapter 24), and track the score over time as a metric.
 -   **Drift alerts:** alert when any of these move, for example after a model version, prompt, or retrieval change, or when the mix of user requests shifts.
 
+## Alerting: Turning Metrics into Action
+
+Dashboards only help when someone is looking at them. Alerts watch the metrics for you and page a person when something needs attention. With Prometheus, you write alert rules as queries over the metrics defined above, and Alertmanager routes the resulting alerts to Slack, email, or an on-call tool.
+
+```yaml
+# alert_rules.yml
+groups:
+  - name: ai-application
+    rules:
+      - alert: AICostSpike
+        # Spend over the last hour is more than 3x the same hour last week.
+        expr: |
+          sum(increase(ai_estimated_cost_usd_total[1h]))
+            > 3 * sum(increase(ai_estimated_cost_usd_total[1h] offset 1w))
+        for: 15m
+        labels: {severity: page}
+        annotations:
+          summary: "AI spend is 3x higher than last week"
+
+      - alert: AIHighErrorRate
+        expr: |
+          sum(rate(ai_api_calls_total{status="failure"}[5m]))
+            / sum(rate(ai_api_calls_total[5m])) > 0.05
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "More than 5% of AI calls are failing"
+
+      - alert: AIValidationFailuresRising
+        # A proxy for quality: outputs that fail schema or business-rule checks.
+        expr: |
+          sum(rate(ai_validation_failures_total[30m]))
+            / sum(rate(ai_api_calls_total{status="success"}[30m])) > 0.02
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: "More than 2% of AI outputs fail validation"
+
+      - alert: AISlowResponses
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(ai_api_call_duration_seconds_bucket[5m]))) > 20
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "p95 AI latency is above 20 seconds"
+```
+
+A few rules of thumb keep alerts useful:
+
+-   **Alert on symptoms users feel** (errors, latency, cost, quality), not on every internal metric. Each page should need a human to act.
+-   **Use `for:` to ignore short blips**, and compare against a baseline (such as `offset 1w`) for metrics like cost that vary by time of day.
+-   **Match the label values to your code.** These rules use the `"success"` and `"failure"` status values set by `monitored_ai_call` above; if you change the labels in code, change the rules too.
+-   **You can't alert on hallucinations directly.** Alert on proxies you can measure: validation failures, a falling score from sampled evaluation, or a rise in negative user feedback. Provider spending limits are a useful last line of defence against runaway cost.
+
 ## Practical Project: A Real-Time IoT Monitoring Dashboard
 
 Let's build a simple but complete application that brings all three pillars together. We'll create a FastAPI service that simulates receiving IoT data, analyzes it with our fully-monitored AI function, and exposes a metrics endpoint for Prometheus.
@@ -415,3 +470,9 @@ You now have the visibility needed to confidently run, debug, and scale your AI 
 - [Production-Ready Observability Platform for AI Systems (Medium, 2023)](https://medium.com/@bijit211987/production-ready-observability-platform-for-ai-systems-17923d19639b)
 - [A Simple Recipe for LLM Observability (Medium, 2025)](https://statistician-in-stilettos.medium.com/a-simple-recipe-for-llm-observability-5c6f24c96310)
 - [AI Observability: A Complete Guide to Monitoring Model Performance in Production (Galileo AI, 2025)](https://www.galileo.ai/blog/ai-observability)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 22: Security and Safety in AI Applications](22-security-safety.md) | [Table of Contents](../README.md) | [Chapter 24: Testing AI Systems →](24-testing-ai-systems.md)

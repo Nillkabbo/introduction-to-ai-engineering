@@ -264,7 +264,7 @@ class MultiLevelCache:
         
         # 2. Try L2 if L1 misses
         l2_result = self.l2_cache.get(key)
-        if l2_result:
+        if l2_result is not None:
             # Promote to L1 for future requests
             self.l1_cache[key] = l2_result
             return l2_result
@@ -353,3 +353,9 @@ This architecture is complex, but it is built from the simple patterns we've dis
 - Scalability of AI Solutions (Unaligned Newsletter): https://www.unaligned.io/p/scalability-of-ai-solutions
 - AI Scaling (IBM): https://www.ibm.com/think/topics/ai-scaling
 - Scalability in AI Projects: Strategies, Types & Challenges (Tribe AI): https://www.tribe.ai/applied-ai/ai-scalability
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 19: AI Application Architecture Patterns](19-ai-application-architecture-patterns.md) | [Table of Contents](../README.md) | [Chapter 21: AI Application Cost Optimization →](21-cost-optimization.md)

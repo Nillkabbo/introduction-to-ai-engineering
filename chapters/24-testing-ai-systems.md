@@ -358,3 +358,9 @@ With this discipline, you can change prompts, upgrade models, and refactor with 
 - [pytest documentation: markers](https://docs.pytest.org/en/stable/how-to/mark.html)
 - [Locust documentation](https://docs.locust.io/)
 - [How to Test AI Agents Effectively (Galileo AI, 2024)](https://www.galileo.ai/blog/how-to-test-ai-agents-evaluation)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 23: Monitoring and Observability in AI Systems](23-monitoring-observability.md) | [Table of Contents](../README.md) | [Chapter 25: Deployment and DevOps for AI Applications →](25-deployment-devops.md)

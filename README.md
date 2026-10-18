@@ -12,6 +12,10 @@ After completing this book, you will:
 - Be able to work proficiently with multimodal AI applications
 
 
+## How to use this book
+
+Each chapter ends with **Key Takeaways** to review what matters and three graded **Exercises** (Warm-up, Build, Stretch) that extend the chapter's running IoT example. Each exercise states what "done" looks like, so you can check your own work. Links at the bottom of every chapter take you to the previous and next chapters.
+
 ## Book Structure
 
 ### Part 1: Foundations (Chapters 0-4)
@@ -130,6 +134,7 @@ After completing this book, you will:
 #### [Chapter 15: Building Production Agents](chapters/15-building-production-agents.md)
 - The agent framework landscape (provider SDKs, LangChain/LangGraph, multi-agent frameworks)
 - State management and persistence
+- Context engineering (compaction, just-in-time retrieval) and long-term agent memory
 - Communication protocols (message brokers, MCP, A2A)
 - Guardrails: budgets, idempotency, timeouts, evaluation
 - Observability: logging, metrics, tracing
@@ -196,6 +201,7 @@ After completing this book, you will:
 - Metrics and KPIs (and label cardinality)
 - Distributed tracing with OpenTelemetry GenAI conventions
 - Measuring quality, not just uptime
+- Alerting on cost spikes, error rates, and quality proxies
 - Example: IoT system health dashboard
 
 #### [Chapter 24: Testing AI Systems](chapters/24-testing-ai-systems.md)

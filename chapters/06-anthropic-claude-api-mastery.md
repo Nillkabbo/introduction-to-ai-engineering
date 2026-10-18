@@ -396,3 +396,9 @@ By adding Claude to your toolkit, you can choose the best model for each job and
 - Anthropic Python SDK. https://github.com/anthropics/anthropic-sdk-python
 - Building effective agents (Anthropic, 2024). https://www.anthropic.com/engineering/building-effective-agents
 - Build with Claude (Anthropic Academy). https://www.anthropic.com/learn/build-with-claude
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 5: A Developer's Guide to the OpenAI API](05-openai-api-complete-guide.md) | [Table of Contents](../README.md) | [Chapter 7: Mastering the Google Gemini API →](07-google-gemini-api-guide.md)

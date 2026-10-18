@@ -8,11 +8,10 @@ Think of it as the difference between hiring a generalist and hiring a specialis
 
 By the end of this chapter, you will be able to:
 
-- Craft prompts tailored to specific industries like manufacturing, healthcare, and finance.
+- Craft prompts that supply domain context (standards, terminology, constraints) instead of relying on personas.
 - Generate high-quality, domain-specific technical documentation.
 - Build sophisticated code generation workflows that adhere to industry best practices.
 - Design AI-powered data analysis systems that understand domain-specific KPIs.
-- Develop effective, context-aware customer service automation for specialized products.
 - Create detailed IoT device troubleshooting guides using embedded domain knowledge.
 
 ## The Power of Context: Generic vs. Domain-Specific Prompts
@@ -264,7 +263,7 @@ print(code_review)
 
 ## Domain 3: Data Analysis and Insights
 
-When analyzing data, providing domain context transforms the AI from a simple data processor into a insightful analyst.
+When analyzing data, providing domain context transforms the AI from a simple data processor into an insightful analyst.
 
 ### Industrial Manufacturing Analytics
 
@@ -426,3 +425,9 @@ By applying these techniques, you can transform a general-purpose language model
 - AwesomeGPTSystemPrompts (GitHub collection). https://github.com/AntreasAntoniou/AwesomeGPTSystemPrompts
 - Prompt Engineering Guide (Prompting Guide). https://www.promptingguide.ai/
 - Prompt Creator: Prompt Engineering for AI (Prompt Creator). https://promptcreator.ai/
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 11: Mastering Structured Output](11-structured-output-generation.md) | [Table of Contents](../README.md) | [Chapter 13: From Chatbots to Autonomous Agents →](13-introduction-to-ai-agents.md)

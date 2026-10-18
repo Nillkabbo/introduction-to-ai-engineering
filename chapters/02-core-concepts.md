@@ -215,15 +215,24 @@ A huge window does not make context free:
 A common strategy for managing long conversations is a "sliding window" of memory. We always keep the system prompt, but drop the oldest user/assistant messages once the history exceeds a token budget. The budget should leave room for the model's reply.
 
 ```python
-def trim_conversation_history(messages: list[dict], max_input_tokens: int = 100_000) -> list[dict]:
-    """Returns a copy of the history that fits within the token budget."""
+def trim_conversation_history(
+    messages: list[dict],
+    max_input_tokens: int = 100_000,
+    reserve_output_tokens: int = 4_000,
+) -> list[dict]:
+    """Returns a copy of the history that fits within the token budget,
+    leaving room for the model's reply."""
     def count(msg: dict) -> int:
         return len(encoder.encode(msg["content"]))
 
     system = [m for m in messages[:1] if m["role"] == "system"]
     history = messages[len(system):]
 
-    budget = max_input_tokens - sum(count(m) for m in system)
+    budget = max_input_tokens - reserve_output_tokens - sum(count(m) for m in system)
+    if history and count(history[-1]) > budget:
+        # Never silently drop the user's latest question.
+        raise ValueError("The newest message alone exceeds the token budget.")
+
     kept: list[dict] = []
     # Walk backwards from the newest message, keeping as many as fit.
     for msg in reversed(history):
@@ -254,7 +263,7 @@ These three ideas—cost, meaning, and memory—are the levers you will constant
 
 **2. Build:** Extend `find_most_similar` into `top_k(query, options, k=3)` that returns `(option, score)` pairs sorted by score, and grow the knowledge base to about eight troubleshooting steps. Write a labelled test set of eight user complaints, each paired with the step you consider correct, and embed the knowledge base only once instead of on every query. You are done when the script prints top-1 and top-3 hit rates for your test set and you have looked at every miss to decide whether the query, the knowledge base wording, or the expected label was the problem.
 
-**3. Stretch:** Write tests (plain `assert` statements are fine) for `trim_conversation_history`: the system prompt is always kept, the caller's list is not modified, the result fits the budget, and the newest message is always included. One of these will fail when the newest message alone is larger than the budget, because the function then silently drops the user's question. Change the function to raise a clear error in that case and add a `reserve_output_tokens` parameter that is subtracted from the budget. You are done when all your tests pass, including one for the oversized-message case.
+**3. Stretch:** Write tests (plain `assert` statements are fine) for `trim_conversation_history`: the system prompt is always kept, the caller's list is not modified, the result plus `reserve_output_tokens` fits the budget, the newest message is always included, and an oversized newest message raises `ValueError`. Then add a `summarize` option: instead of discarding the dropped older messages, replace them with a single model-written summary message placed right after the system prompt. You are done when all your tests pass (use a fake summarizer function in the tests so they need no API call) and a 50-turn sample conversation stays under budget while the summary still mentions the device ID from turn 1.
 
 # References and Further Reading
 
@@ -264,3 +273,9 @@ These three ideas—cost, meaning, and memory—are the levers you will constant
 - AI Tokens Explained - What They Are and Why They Matter. https://zenvanriel.nl/ai-engineer-blog/ai-tokens-explained-what-they-are-and-why-they-matter/
 - Lost in the Middle: How Language Models Use Long Contexts (Liu et al., 2023). https://arxiv.org/abs/2307.03172
 - tiktoken (OpenAI's tokenizer library). https://github.com/openai/tiktoken
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 1: Welcome to AI Engineering](01-ai-engineering.md) | [Table of Contents](../README.md) | [Chapter 3: Setting Up Your Development Environment →](03-development-environment.md)

@@ -287,3 +287,9 @@ You now possess the foundational knowledge required to build any AI application.
 - [WIP] Resources for AI engineers (Chip Huyen, 2025). https://github.com/chiphuyen/aie-book
 - What is Artificial Intelligence Engineering? | MIT Professional Education. https://professionalprograms.mit.edu/blog/technology/artificial-intelligence-engineering/
 - How we built our multi-agent research system (Anthropic, 2025): https://www.anthropic.com/engineering/built-multi-agent-research-system
+
+<!-- chapter-nav -->
+
+---
+
+[← Introduction to AI Engineering](INTRODUCTION.md) | [Table of Contents](../README.md) | [Chapter 2: The Engine Room of AI: Tokens, Embeddings, and Context Windows →](02-core-concepts.md)

@@ -150,3 +150,9 @@ Go build the future.
 - [The State of Artificial Intelligence in 2025: Breakthroughs, Challenges, and the Road Ahead (TS2.Tech)](https://ts2.tech/en/the-state-of-artificial-intelligence-in-2025-breakthroughs-challenges-and-the-road-ahead-updated-2025-july-1st-1202-cet/)
 - [AI Product Management: How to Build AI Products (Product School)](https://productschool.com/blog/product-management-2/product-management-for-ai/)
 - [How to Build an AI Product: A Step-by-Step Guide (VentureBeat)](https://venturebeat.com/ai/how-to-build-an-ai-product-a-step-by-step-guide/)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 29: Emerging Patterns and Future Trends](29-emerging-patterns-future-trends.md) | [Table of Contents](../README.md)

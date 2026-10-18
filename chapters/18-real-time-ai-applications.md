@@ -239,6 +239,7 @@ Let's see how a priority queue can be implemented.
 ```python
 import json
 import time
+from typing import Optional
 
 class PriorityQueue:
     def __init__(self, redis_client):
@@ -329,3 +330,9 @@ This architecture is robust, scalable, and responsive. It uses cheap, fast compu
 - Agents as Escalators: Real-time AI Video Monitoring with Amazon Bedrock Agents and Video Streams (AWS): https://aws.amazon.com/blogs/machine-learning/agents-as-escalators-real-time-ai-video-monitoring-with-amazon-bedrock-agents-and-video-streams/
 - Real-Time Machine Learning: The Complete Guide (Xenonstack): https://www.xenonstack.com/blog/real-time-machine-learning
 - Real-Time Analytics with AI: Why Speed Matters in the Age of Data (DEV.to): https://dev.to/sanjana_shah_bia/real-time-analytics-with-ai-why-speed-matters-in-the-age-of-data-3006
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 17: Building AI-Powered Web Applications with Python](17-building-ai-powered-web-applications.md) | [Table of Contents](../README.md) | [Chapter 19: AI Application Architecture Patterns →](19-ai-application-architecture-patterns.md)

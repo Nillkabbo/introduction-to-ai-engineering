@@ -317,3 +317,9 @@ With Gemini alongside OpenAI and Anthropic, you have a complete toolkit and can 
 - Google Gen AI Python SDK documentation. https://googleapis.github.io/python-genai/
 - Interactions API overview. https://ai.google.dev/gemini-api/docs/interactions-overview
 - Gemini API release notes. https://ai.google.dev/gemini-api/docs/changelog
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 6: Mastering the Anthropic Claude API](06-anthropic-claude-api-mastery.md) | [Table of Contents](../README.md) | [Chapter 8: API Design Patterns and Best Practices →](08-api-design-patterns.md)

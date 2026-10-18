@@ -241,3 +241,9 @@ The specific models and products will keep changing. The engineering principles 
 - [Communication-Efficient Learning of Deep Networks from Decentralized Data (McMahan et al., 2016)](https://arxiv.org/abs/1602.05629)
 - [Deep Leakage from Gradients (Zhu et al., 2019)](https://arxiv.org/abs/1906.08797)
 - [Post-Quantum Cryptography standardization (NIST)](https://csrc.nist.gov/projects/post-quantum-cryptography)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 28: AI Workflows and Orchestration](28-ai-workflows-orchestration.md) | [Table of Contents](../README.md) | [Chapter 30: Building Your AI Product →](30-building-ai-product.md)

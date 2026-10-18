@@ -264,3 +264,9 @@ Fine-tuning is a powerful tool, best used deliberately:
 - [Hugging Face PEFT documentation](https://huggingface.co/docs/peft/)
 - [vLLM documentation (serving open-weight models and LoRA adapters)](https://docs.vllm.ai/)
 - [Fine-tuning now available for GPT-4o (OpenAI; see the 2026 platform update on this page)](https://openai.com/index/gpt-4o-fine-tuning/)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 25: Deployment and DevOps for AI Applications](25-deployment-devops.md) | [Table of Contents](../README.md) | [Chapter 27: Retrieval-Augmented Generation (RAG) →](27-rag-retrieval-augmented-generation.md)

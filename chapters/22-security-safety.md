@@ -371,3 +371,9 @@ AI security is defence in depth. Keep secrets in a secrets manager; assume promp
 - [Microsoft Presidio (PII detection and anonymization)](https://github.com/microsoft/presidio)
 - [AI Security Best Practices (Microsoft)](https://learn.microsoft.com/en-us/security/ai/)
 - [Concrete Problems in AI Safety (arXiv, 2016)](https://arxiv.org/abs/1606.06565)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 21: AI Application Cost Optimization](21-cost-optimization.md) | [Table of Contents](../README.md) | [Chapter 23: Monitoring and Observability in AI Systems →](23-monitoring-observability.md)

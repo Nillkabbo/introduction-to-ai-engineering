@@ -276,7 +276,7 @@ class SmartSafeAssistant:
             return self._handle_general(question)
 
     def _handle_math(self, question: str) -> str:
-        # Implements the safe "code generation + eval" pattern
+        # Implements the safe "translate to an expression, compute in code" pattern
         return safe_math_solver(question) # Assuming safe_math_solver is defined as above
 
     def _handle_current_info(self) -> str:
@@ -336,3 +336,9 @@ By embracing this mindset, you'll avoid common pitfalls and build applications t
 - AI’s limitations: What artificial intelligence can’t do. https://lumenalta.com/insights/ai-limitations-what-artificial-intelligence-can-t-do
 - 14 Things AI Can — and Can't Do. GeeksforGeeks. https://www.geeksforgeeks.org/14-things-ai-can-and-cant-do/
 - Limitations of AI: What’s Holding Artificial Intelligence Back in 2025? https://visionx.io/blog/limitations-of-ai/
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 3: Setting Up Your Development Environment](03-development-environment.md) | [Table of Contents](../README.md) | [Chapter 5: A Developer's Guide to the OpenAI API →](05-openai-api-complete-guide.md)

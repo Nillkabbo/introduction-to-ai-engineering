@@ -384,3 +384,9 @@ Remember the core principle: **garbage in, garbage out.** A vague prompt yields 
 - Chain-of-Thought Prompting Elicits Reasoning in Large Language Models (Wei et al., 2022). https://arxiv.org/abs/2201.11903
 - Prompt engineering overview (Claude documentation). https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/overview
 - Prompt engineering guide (OpenAI documentation). https://platform.openai.com/docs/guides/prompt-engineering
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 8: API Design Patterns and Best Practices](08-api-design-patterns.md) | [Table of Contents](../README.md) | [Chapter 10: Advanced Prompting Strategies →](10-advanced-prompting-strategies.md)

@@ -328,3 +328,9 @@ This solid foundation is not just for learning; it's the same setup professional
 - Setting Up a Python Environment for AI Development: A Comprehensive Guide. https://medium.com/@flexianadevgroup/setting-up-a-python-environment-for-ai-development-a-comprehensive-guide-022602e337f4
 - Getting Started with AI Development: Setting Up Your Python Environment. https://dev.to/sahilmadhyan/getting-started-with-ai-development-setting-up-your-python-environment-275o
 - The Ultimate Deep Learning Project Structure: A Software Engineer’s Guide into the Land of AI. https://ai.plainenglish.io/the-ultimate-deep-learning-project-structure-a-software-engineers-guide-into-the-land-of-ai-c383f234fd2f
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 2: The Engine Room of AI: Tokens, Embeddings, and Context Windows](02-core-concepts.md) | [Table of Contents](../README.md) | [Chapter 4: Understanding AI Capabilities and Limitations →](04-ai-capabilities-limitations.md)

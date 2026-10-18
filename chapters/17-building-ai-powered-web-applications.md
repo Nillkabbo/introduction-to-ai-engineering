@@ -371,6 +371,8 @@ Our system will have:
 ```python
 # A complete app.py for our IoT Dashboard
 
+import json
+import uuid
 # ... (imports: FastAPI, WebSocket, etc.)
 
 app = FastAPI()
@@ -386,7 +388,8 @@ async def get_dashboard():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+    client_id = str(uuid.uuid4())  # or the authenticated user ID
+    await manager.connect(websocket, client_id)
     try:
         while True:
             # Wait for a message from the client (e.g., a button click)
@@ -401,10 +404,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 diagnosis = "AI analysis result..."
                 
                 # Broadcast the new alert to all connected clients
-                await manager.broadcast({
+                await manager.broadcast(json.dumps({
                     "type": "new_alert",
                     "alert": {"device_id": device_id, "message": diagnosis}
-                })
+                }))
 
             elif action == "chat":
                 # AI chat assistant logic
@@ -419,7 +422,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
 
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        manager.disconnect(client_id)
 
 # ... (Background task to simulate device status changes and broadcast updates) ...
 ```
@@ -453,3 +456,9 @@ This architecture creates a powerful, dynamic user experience. The dashboard loa
 - AI-Powered Web Applications: Building the Future with Django and TensorFlow (Medium): https://medium.com/@tarekeesa7/ai-powered-web-applications-building-the-future-with-django-and-tensorflow-4e71e83c0885
 - Building AI Applications on the Web (Manning): https://www.manning.com/books/building-ai-applications-on-the-web
 - Build a Local and Offline-Capable Chatbot with WebLLM (web.dev): https://web.dev/articles/ai-chatbot-webllm
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 16: An Introduction to Multi-Agent Systems](16-multi-agent-systems.md) | [Table of Contents](../README.md) | [Chapter 18: Architecting Real-Time AI Applications →](18-real-time-ai-applications.md)

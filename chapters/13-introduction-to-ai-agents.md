@@ -14,7 +14,7 @@ By the end of this chapter, you will be able to:
 -   Understand the core components that form an agent's "mind": perception, memory, reasoning, and action.
 -   Architect a simple agent from scratch, building each component step-by-step.
 -   Assemble these components into a functioning, autonomous IoT monitoring agent.
--   Compare different agent architectures and understand their respective trade-offs.
+-   Decide when a fixed workflow is enough and when a task really needs an agent.
 
 ## The Limits of a Simple Chatbot
 
@@ -583,3 +583,9 @@ This foundation is the springboard into the wider world of agentic AI. From here
 - How we built our multi-agent research system (Anthropic, 2025): https://www.anthropic.com/engineering/built-multi-agent-research-system
 - Building effective agents (Anthropic, 2024): https://www.anthropic.com/engineering/building-effective-agents
 - A practical guide to building agents (OpenAI, 2025): https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 12: Domain-Specific Prompting](12-domain-specific-prompting.md) | [Table of Contents](../README.md) | [Chapter 14: Giving Your Agent Tools →](14-tool-use-function-calling.md)

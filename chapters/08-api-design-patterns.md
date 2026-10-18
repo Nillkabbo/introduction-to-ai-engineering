@@ -376,3 +376,9 @@ By incorporating these patterns into your development workflow, you move from be
 - AI Patterns: A Structured Approach to Artificial Intelligence Development. https://medium.com/@xavier.mehaut/ai-patterns-a-structured-approach-to-artificial-intelligence-development-9d97903c8e34
 - Exponential Backoff And Jitter (AWS Architecture Blog). https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
 - Tenacity documentation. https://tenacity.readthedocs.io/
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 7: Mastering the Google Gemini API](07-google-gemini-api-guide.md) | [Table of Contents](../README.md) | [Chapter 9: Fundamental Prompt Engineering →](09-fundamental-prompt-engineering.md)

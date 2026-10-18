@@ -43,7 +43,7 @@ PRICES = {
     "gpt-6-luna":        {"input": 0.10, "cached_input": 0.01, "output": 0.50},
     "claude-haiku-5-5":  {"input": 0.10, "cached_input": 0.01, "output": 0.50},
     "claude-sonnet-5-5": {"input": 2.00, "cached_input": 0.20, "output": 10.00},
-    "claude-opus-5-5":   {"input": 4.00, "cached_input": 0.20, "output": 20.00},
+    "claude-opus-5-5":   {"input": 4.00, "cached_input": 0.40, "output": 20.00},
 }
 
 def openai_call_cost(response) -> float:
@@ -288,3 +288,9 @@ The startup that was spending $50,000 a month? By measuring first and then apply
 - Batch processing (Claude documentation). https://platform.claude.com/docs/en/build-with-claude/batch-processing
 - Context caching (Gemini API). https://ai.google.dev/gemini-api/docs/caching
 - [Three proven strategies for optimizing AI costs (Google Cloud, 2024)](https://cloud.google.com/transform/three-proven-strategies-for-optimizing-ai-costs)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 20: Scaling AI Applications](20-scaling-ai-applications.md) | [Table of Contents](../README.md) | [Chapter 22: Security and Safety in AI Applications →](22-security-safety.md)

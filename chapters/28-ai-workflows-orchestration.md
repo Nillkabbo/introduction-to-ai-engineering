@@ -311,3 +311,9 @@ By mastering workflow orchestration, you can build AI systems that are not just 
 - [Apache Airflow documentation](https://airflow.apache.org/docs/)
 - [Prefect documentation](https://docs.prefect.io/)
 - [Building effective agents: workflows vs. agents (Anthropic, 2024)](https://www.anthropic.com/engineering/building-effective-agents)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 27: Retrieval-Augmented Generation (RAG)](27-rag-retrieval-augmented-generation.md) | [Table of Contents](../README.md) | [Chapter 29: Emerging Patterns and Future Trends →](29-emerging-patterns-future-trends.md)

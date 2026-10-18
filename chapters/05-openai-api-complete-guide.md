@@ -392,3 +392,9 @@ These are the building blocks you will use in every AI application you create.
 - OpenAI Python SDK (source, examples, changelog). https://github.com/openai/openai-python
 - OpenAI API changelog (new models and deprecations). https://developers.openai.com/api/docs/changelog
 - Assistants API migration guide (to the Responses API). https://developers.openai.com/api/docs/assistants/migration
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 4: Understanding AI Capabilities and Limitations](04-ai-capabilities-limitations.md) | [Table of Contents](../README.md) | [Chapter 6: Mastering the Anthropic Claude API →](06-anthropic-claude-api-mastery.md)

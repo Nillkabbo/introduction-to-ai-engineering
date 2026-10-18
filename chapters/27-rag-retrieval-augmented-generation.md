@@ -296,3 +296,9 @@ By mastering RAG, you can build AI systems that answer questions about your prod
 - [ChromaDB documentation](https://docs.trychroma.com/)
 - [pgvector: vector similarity search for Postgres](https://github.com/pgvector/pgvector)
 - [Next-Gen Large Language Models: The Retrieval-Augmented Generation (RAG) Handbook (freeCodeCamp, 2024)](https://www.freecodecamp.org/news/retrieval-augmented-generation-rag-handbook/)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 26: Fine-Tuning and Custom Models](26-fine-tuning-custom-models.md) | [Table of Contents](../README.md) | [Chapter 28: AI Workflows and Orchestration →](28-ai-workflows-orchestration.md)
