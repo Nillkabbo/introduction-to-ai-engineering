@@ -390,6 +390,22 @@ With this application running, you have a complete observability solution:
 
 You now have the visibility needed to confidently run, debug, and scale your AI applications in production.
 
+## Key Takeaways
+
+-   Log every AI call as a structured JSON event (with `structlog`) carrying a request ID, the provider's response ID, model, prompt version, latency, and input, cached, output, and reasoning tokens. Log full prompts and responses only where your privacy policy allows, with access control and a retention limit.
+-   Expose Prometheus metrics for calls by status, latency (a `Histogram`), tokens by direction, estimated cost, validation failures, and safety flags. Keep label cardinality low: user IDs, request IDs, and prompt text belong in logs and traces, never in metric labels.
+-   Use OpenTelemetry spans for each model and tool call, named with the GenAI semantic conventions (`gen_ai.request.model` and friends), and record exceptions and status on the span. For agents, the span tree is the fastest way to see where a run went wrong, and instrumentation libraries or LLM observability platforms save you writing spans by hand.
+-   Uptime, latency, and cost don't tell you whether answers are good. Add cheap checks on every response, user feedback, sampled evaluation tracked as a metric over time, and alerts when any of them drift after a model, prompt, or retrieval change.
+-   In a FastAPI service, mount `/metrics` with `make_asgi_app()`, run synchronous model calls with `asyncio.to_thread` so the event loop stays free, and never call an endpoint with a hand-made `BackgroundTasks()`, because those tasks never run.
+
+## Exercises
+
+**1. Warm-up:** Exercise the failure path on purpose: call `final_monitored_ai_call` with a model name that doesn't exist and catch the error. You are done when you can point to all three records of the same failure: an `ai_call_failure` log line with its `error_type`, `ai_api_calls_total{status="failure"}` incremented on the `/metrics` page, and a span on the console with status `ERROR` and the recorded exception.
+
+**2. Build:** Trace a two-step prompt chain (classify an IoT alert's severity, then summarize it, as in Chapter 10) under one parent span named for the request, with one child span per model call. On each child span, set `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens` from the response's usage. Done means the console output shows both child spans with the same `trace_id`, each pointing to the parent's span ID, and their token attributes match the token counts in the corresponding log lines.
+
+**3. Stretch:** Add quality monitoring to the project's `analyze_reading`. Count responses that are empty, cut off (`response.status == "incomplete"`), or that don't contain the word "anomaly" or "normal" as the prompt requires, using a new counter with a low-cardinality `reason` label. Then keep a rolling window of the last 100 calls in memory and emit a `quality_alert` log event and set a `Gauge` when the bad-response ratio exceeds 5%. Test it by temporarily swapping the model call for a stub that returns empty text one time in five: you are done when the alert fires within the first window and clears after you remove the stub.
+
 # References and Further Reading
 
 - [OpenTelemetry semantic conventions for generative AI](https://opentelemetry.io/docs/specs/semconv/gen-ai/)

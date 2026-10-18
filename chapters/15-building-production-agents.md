@@ -12,6 +12,7 @@ By the end of this chapter, you will be able to:
 
 -   Evaluate and choose the right agent framework for your project's needs.
 -   Design and implement robust state management systems that survive restarts.
+-   Engineer an agent's context (compaction, tool-result clearing, just-in-time retrieval) and give it scoped, safe long-term memory.
 -   Build communication protocols for multi-agent coordination.
 -   Instrument your agents with comprehensive logging, metrics, and tracing.
 -   Architect a complete, production-grade agent for an industrial automation use case.
@@ -549,6 +550,23 @@ Building a production-ready agent is a discipline that blends AI prompting with 
 
 By choosing the right framework, externalizing state, establishing clear communication channels, and building a comprehensive observability stack, you can create agents that are not just intelligent, but also dependable. These are the agents that can be trusted to automate critical business processes, manage complex systems, and deliver value reliably and at scale.
 
+## Key Takeaways
+
+-   Pick a framework by category (provider SDK, graph/state framework, multi-agent team, typed library, managed platform), but keep your tool implementations, permission checks and evaluations in your own code so they survive a migration.
+-   Persist agent state behind an async `StateStore` interface, serialize it as JSON (never `pickle`), and use a durable database or durable-execution engine for tasks with real-world side effects.
+-   Context engineering means choosing what the model sees on every step: keep tools and instructions lean, compact old turns into a summary once `usage.input_tokens` passes a budget, clear stale tool results, retrieve details just in time, and offload heavy reading to sub-agents.
+-   Long-term memory is a database you expose through tools like `save_memory` and `search_memory`, scoped by tenant and user in your code (never by the model), with timestamps, overwrite-by-key, expiry, deletion support, and Chapter 22's defences against memory poisoning.
+-   Every production agent needs step and cost budgets, idempotent write tools, timeouts on everything, and human approval for irreversible actions.
+-   Make agents observable with structured JSON logs, Prometheus-style metrics labelled by agent and status, and distributed traces that follow one task across agents.
+
+## Exercises
+
+**1. Warm-up:** Finish the chapter's `FileStateStore` by implementing `load` and `delete`, then write a test that saves a state containing a `datetime`, loads it back, and deletes it. Done means the test passes, `load` returns `None` for an unknown agent ID, and `delete` returns `False` when there was nothing to delete.
+
+**2. Build:** Add the step and cost guardrails to the `run_agent` loop from this chapter: stop when the task has used more than a configurable number of total input plus output tokens (summed from `response.usage`) or tool calls, and return a clear "budget exhausted" result that says which limit was hit. Write a test with a fake client whose model keeps requesting the same tool forever. Done means the test shows the loop stopping at the limit every time, with the token total it reports matching the sum of the fake usage values.
+
+**3. Stretch:** Build a compaction evaluation for the `ContextManager`. Record (or script) three long IoT troubleshooting transcripts, each containing 3 to 5 critical facts such as "restart already issued for T-005 at 09:42" or "operator approved firmware 4.2 for Line 2", and set a small `budget_tokens` so compaction happens several times. Done means a script reports, for each transcript, which critical facts appear in the final summary (checked by assertions or an LLM judge as in Chapter 24); then change `SUMMARY_INSTRUCTIONS` or `keep_recent` and show the retention rate before and after.
+
 # References and Further Reading
 
 - Building AI Agents the Right Way: Design Principles for Agentic AI (GoPubby): https://ai.gopubby.com/building-ai-agents-the-right-way-design-principles-for-agentic-ai-47d1b92f0124
@@ -557,3 +575,6 @@ By choosing the right framework, externalizing state, establishing clear communi
 - Building effective agents (Anthropic, 2024): https://www.anthropic.com/engineering/building-effective-agents
 - LangChain v1 migration guide: https://docs.langchain.com/oss/python/migrate/langchain-v1
 - Building AI Agents: 14 Best Practices I Learned the Hard Way (Product Compass): https://www.productcompass.pm/p/building-ai-agents-best-practices
+- Effective context engineering for AI agents (Anthropic, 2025): https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents
+- Lost in the Middle: How Language Models Use Long Contexts (Liu et al., 2023): https://arxiv.org/abs/2307.03172
+- MemGPT: Towards LLMs as Operating Systems (Packer et al., 2023): https://arxiv.org/abs/2310.08560

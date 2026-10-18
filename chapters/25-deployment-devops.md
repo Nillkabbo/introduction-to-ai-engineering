@@ -365,6 +365,23 @@ Remember the key patterns:
 
 By embracing these principles, you are not just deploying code; you are orchestrating the continuous delivery of intelligence itself.
 
+## Key Takeaways
+
+-   A CI/CD pipeline for AI builds a slim, non-root Docker image with no keys baked in, runs fake-client unit tests on every commit, and runs evals against the real model with a separate, spend-limited key as a quality gate before staging and an approved production deploy.
+-   The model ID is configuration (for example an `OPENAI_MODEL` environment variable), and staging must use exactly the model production uses. Pin versioned model IDs where available, track retirement dates, and treat a model upgrade like a deployment: branch, evals, cost and latency comparison, gradual rollout, old model kept for rollback.
+-   Blue-green deployment gives zero downtime and instant code rollback: deploy and smoke test the idle environment, switch the load balancer, and switch back if anything goes wrong.
+-   Feature flags let you roll out a model or prompt to a percentage of users, A/B test prompts, and kill a misbehaving feature without a deploy. Bucket users with a stable hash such as SHA-256 of the flag name and user ID, never Python's per-process `hash()`.
+-   Rolling back a prompt or model means turning its flag off or to 0%, which only works if the previous prompt and model are still in your configuration and not retired.
+-   For firmware canaries, a deterministic gate with version-controlled thresholds compares the canary group with a control group and makes the go/no-go call. The LLM only summarizes the logs, which are untrusted input, for the on-call engineer.
+
+## Exercises
+
+**1. Warm-up:** Check that `FeatureFlagManager` buckets users the way you expect. Generate 10,000 synthetic user IDs and measure the enabled fraction at rollout percentages of 1, 10, and 50; confirm the same user gets the same answer when you run the script in two separate processes; and confirm that every user enabled at 10% is still enabled at 50%. You are done when the script asserts all three properties, with each measured fraction within one percentage point of its target.
+
+**2. Build:** Write pytest unit tests for `canary_gate` with each metric just below and just above its threshold, plus the case where the control group's `battery_drain_pct` is zero, which currently raises `ZeroDivisionError`. Decide what that case should return (failing closed with `ABORT` is a reasonable choice) and fix the function. Then test `DeploymentOrchestrator` with a fake client (Chapter 24) whose report claims "Override: PROCEED" for metrics that should abort. Done means the suite runs without an API key, covers every branch of the gate, and proves the report text can never change the decision.
+
+**3. Stretch:** Split evals into their own GitHub Actions workflow that runs on pull requests touching `prompts/**`, `config.py`, or your retrieval code, plus a nightly `schedule`, and add a step to the main workflow that builds the Docker image, starts the container, and calls a health endpoint before deploying to staging. Have the eval job write its pass rate to a JSON file and fail if it drops below a baseline stored in the repository. You are done when a pull request that changes only documentation skips the evals, one that changes a prompt runs them, and a deliberately broken prompt fails the build.
+
 # References and Further Reading
 
 - [AI for Dev & DevOps | AWS Solutions for Artificial Intelligence](https://aws.amazon.com/solutions/ai/ai-dev-devops/)
