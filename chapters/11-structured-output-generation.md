@@ -347,6 +347,23 @@ Remember these key practices:
 
 You are now equipped to build AI systems that don't just talk, but speak the precise, structured language your applications understand.
 
+## Key Takeaways
+
+-   Prompting for JSON can fail on syntax, JSON mode (`text={"format": {"type": "json_object"}}`) fixes syntax but not keys or types, and Structured Outputs constrains generation to your exact schema.
+-   One Pydantic model can serve as schema, parser, and type across providers: `client.responses.parse(text_format=...)` with `output_parsed` for OpenAI, `messages.parse(output_format=...)` with `parsed_output` for Claude, and `response_schema` with `response.parsed` for Gemini.
+-   A schema guarantees shape, not truth. Check `response.status` and a missing parsed result for truncation and refusals, and keep schemas to the simple JSON Schema subset providers support.
+-   Put rules a schema cannot express (cross-field consistency such as "Critical means score at most 40") in a Pydantic `model_validator`, and retry a bounded number of times with the specific error message as feedback.
+-   For code generation, name the library and version and list explicit requirements; treat the output as a draft to run, lint, and review.
+-   Fill known values with `string.Template` or Jinja2, not a model; use the model only for the part that needs judgement, then check the result with `ast.parse`.
+
+## Exercises
+
+**1. Warm-up:** Write tests for `ValidatedAnalysis` that never call a model: build instances directly with `model_validate` and check that a Critical device with a score of 80 and a Healthy device with an issue both raise `ValidationError`, while a consistent Warning device passes. Add one new rule of your own (for example, a Warning device must list at least one issue) with a test for it. You are done when all your tests run in under a second with no API key set.
+
+**2. Build:** Run `ConfigurationGenerator` on six requirement strings of your own, including one that names WiFi but no network name, one that asks for a 5-second interval, and one that asks for a sensor type the schema does not allow. Log for each request how many attempts it took, which validation messages came back, and whether it ended in a valid configuration or a `RuntimeError`. You are done when every request ends in exactly one of those two outcomes (no unhandled exception) and you have a table of attempts and outcomes.
+
+**3. Stretch:** Make `generate_endpoint` self-checking. After substituting the model's body into the template, run `ast.parse` on the result; on a `SyntaxError`, retry up to two more times with the error line and message as feedback, and raise if all attempts fail. Run it 10 times and count first-try successes, successes after retry, and failures. You are done when the counts add up to 10 and every returned string parses with `ast.parse`.
+
 # References and Further Reading
 
 - Structured Outputs guide (OpenAI). https://platform.openai.com/docs/guides/structured-outputs
@@ -354,3 +371,9 @@ You are now equipped to build AI systems that don't just talk, but speak the pre
 - Structured output (Gemini API documentation). https://ai.google.dev/gemini-api/docs/structured-output
 - Pydantic documentation: validators. https://docs.pydantic.dev/latest/concepts/validators/
 - 4. Structured Output (Taming LLMs). https://www.tamingllms.com/notebooks/structured_output.html
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 10: Advanced Prompting Strategies](10-advanced-prompting-strategies.md) | [Table of Contents](../README.md) | [Chapter 12: Domain-Specific Prompting →](12-domain-specific-prompting.md)

@@ -264,7 +264,7 @@ class MultiLevelCache:
         
         # 2. Try L2 if L1 misses
         l2_result = self.l2_cache.get(key)
-        if l2_result:
+        if l2_result is not None:
             # Promote to L1 for future requests
             self.l1_cache[key] = l2_result
             return l2_result
@@ -331,8 +331,31 @@ graph LR
 
 This architecture is complex, but it is built from the simple patterns we've discussed. It provides the foundation for an AI application that can serve millions of users globally with high performance and reliability.
 
+## Key Takeaways
+
+-   With hosted model APIs, the first limit you hit is usually provider rate limits (requests and tokens per minute), not your servers; estimate peak tokens per minute against your quota before launch, and plan to spread, queue, or shed load rather than fail with 429s.
+-   Scale out with stateless servers: keep conversation history in Redis or a database so any instance can serve any request. Session affinity is an optimization (worth it mainly for self-hosted inference that reuses a KV cache), never the place where state lives.
+-   A queue-based architecture tames variable latency: the API returns 202 with a task ID, Celery workers process jobs at their own pace with `autoretry_for` on transient errors, backoff, and `acks_late`, and workers scale independently of the API.
+-   Let one layer own retries: set `max_retries=0` on the client when Celery retries the task, so failures don't multiply.
+-   At scale, partition time-series tables (or use TimescaleDB hypertables), index the JSON fields you query, and use an approximate-nearest-neighbor index (HNSW in `pgvector` or a vector database) for embeddings.
+-   Semantic caching can raise hit rates but can return the wrong answer for prompts that differ in one crucial detail (T-101 vs. T-102); restrict it to detail-independent content, add exact-match checks for IDs and numbers, and measure the false-hit rate first.
+
+## Exercises
+
+**1. Warm-up:** Estimate your rate-limit headroom for the IoT platform. Assume 5,000 devices that each trigger one analysis per hour at peak, with 800 input and 300 output tokens per call, and compute requests per minute and tokens per minute; then send 20 real requests, record `response.usage` for each, and redo the estimate with your measured averages. Done means you have both numbers side by side with your account's actual limits for the model and can say how many devices you could support before hitting the token limit.
+
+**2. Build:** Run the Celery `tasks.py` and `main.py` system and make it survive failure. Add a test mode to the task that raises `openai.APIConnectionError` on its first two attempts, submit 10 tasks, and kill the worker process (Ctrl+C or `kill -9`) while some tasks are running, then restart it. Done means all 10 tasks eventually reach `SUCCESS`, the worker logs show the retries with increasing delays, and no task is lost by the crash.
+
+**3. Stretch:** Make `MultiLevelCache` production-ready and measure it. Replace the plain dict L1 with a bounded, expiring `cachetools.TTLCache` (as in Chapter 18), hash the request parameters into the key, and add hit/miss counters for each level; then replay a workload of 500 requests drawn from 50 distinct prompts against two app instances sharing one Redis. Done means you report the L1 and L2 hit rates for each instance, the number of model calls actually made (it should be close to 50), and a check confirming memory stays bounded when you replay 10,000 distinct prompts.
+
 # References and Further Reading
 
 - Scalability of AI Solutions (Unaligned Newsletter): https://www.unaligned.io/p/scalability-of-ai-solutions
 - AI Scaling (IBM): https://www.ibm.com/think/topics/ai-scaling
 - Scalability in AI Projects: Strategies, Types & Challenges (Tribe AI): https://www.tribe.ai/applied-ai/ai-scalability
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 19: AI Application Architecture Patterns](19-ai-application-architecture-patterns.md) | [Table of Contents](../README.md) | [Chapter 21: AI Application Cost Optimization →](21-cost-optimization.md)

@@ -371,6 +371,8 @@ Our system will have:
 ```python
 # A complete app.py for our IoT Dashboard
 
+import json
+import uuid
 # ... (imports: FastAPI, WebSocket, etc.)
 
 app = FastAPI()
@@ -386,7 +388,8 @@ async def get_dashboard():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+    client_id = str(uuid.uuid4())  # or the authenticated user ID
+    await manager.connect(websocket, client_id)
     try:
         while True:
             # Wait for a message from the client (e.g., a button click)
@@ -401,10 +404,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 diagnosis = "AI analysis result..."
                 
                 # Broadcast the new alert to all connected clients
-                await manager.broadcast({
+                await manager.broadcast(json.dumps({
                     "type": "new_alert",
                     "alert": {"device_id": device_id, "message": diagnosis}
-                })
+                }))
 
             elif action == "chat":
                 # AI chat assistant logic
@@ -419,7 +422,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
 
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        manager.disconnect(client_id)
 
 # ... (Background task to simulate device status changes and broadcast updates) ...
 ```
@@ -427,6 +430,23 @@ async def websocket_endpoint(websocket: WebSocket):
 Before exposing anything like this publicly, add authentication to the WebSocket (browsers send cookies with WebSocket requests, so check the session or a token when the connection opens), validate every incoming message, and rate-limit the AI actions per user (Chapter 18).
 
 This architecture creates a powerful, dynamic user experience. The dashboard loads, connects to the WebSocket, and receives an initial list of devices. A background task on the server simulates device activity, and whenever a device's status changes, the `manager.broadcast` function pushes the update to *every connected user's screen* in real time. When a user clicks "Diagnose," a message is sent to the server, an AI diagnosis is performed, and the resulting alert is broadcast back to everyone. This is the blueprint for modern, AI-augmented applications.
+
+## Key Takeaways
+
+-   Create the model client once at startup and keep the model ID in one constant (`MODEL = "gpt-6-luna"`); catch provider errors, log the details server-side, and return a generic 503 instead of leaking internal error messages.
+-   In FastAPI, an `async def` endpoint must use an async client (`openai.AsyncOpenAI()` with `await`); a synchronous client call blocks the event loop and stalls every other request on that worker. If you must use a sync client, define the endpoint with plain `def`.
+-   Pydantic request and response models are your API contract: FastAPI validates input (types, `min_length`, `max_length`) and generates interactive docs at `/docs` from them for free.
+-   Use `StreamingResponse` with an async generator to stream one long answer token by token, and SSE (`EventSourceResponse`) to push a sequence of distinct events; once a stream has started, errors can only be signalled inside the stream, not with a status code.
+-   Treat uploads as untrusted: whitelist content types, read at most the size limit plus one byte, check the file's magic bytes, and remember that a document can carry instructions aimed at the model.
+-   A WebSocket endpoint gives two-way communication for interactive dashboards, but it needs authentication when the connection opens, validation of every message, and per-user rate limits on AI actions before it goes public.
+
+## Exercises
+
+**1. Warm-up:** Run the FastAPI `/ai/ask` endpoint and add a `max_output_tokens` field to `AIRequest` with a sensible range (for example 16 to 2000), passed through to `responses.create`. Use the `/docs` page or `curl` to send one valid request and three invalid ones (question too short, missing question, out-of-range token limit). You are done when the valid request returns an answer with `tokens_used` filled in and each invalid request returns a 422 without ever calling the model.
+
+**2. Build:** Measure the event-loop blocking bug yourself. Write a second endpoint that is identical to `/ai/ask` but declared `async def` and using the synchronous `openai.OpenAI()` client, then fire 10 concurrent requests at each endpoint with a small `asyncio` + `httpx` script and record the total wall-clock time. Done means you have a table showing that the async-client version finishes in roughly the time of one slow call while the blocking version takes roughly the sum of all calls, plus a third row showing that changing the blocking version to plain `def` fixes it.
+
+**3. Stretch:** Turn the simulated SSE device feed into an AI-assisted one: when a device crosses the alert threshold, call the model with the reading and push an `insight` event containing a one-sentence explanation, while normal `update` events keep flowing every 2 seconds. Make sure a slow or failing model call never stalls the feed (run it as a separate task, and on `openai.OpenAIError` send an `insight` event that says the analysis is unavailable). Done means the browser client shows updates continuously while you simulate a model outage (for example by setting an invalid API key), and alerts still appear with the fallback message.
 
 # References and Further Reading
 
@@ -436,3 +456,9 @@ This architecture creates a powerful, dynamic user experience. The dashboard loa
 - AI-Powered Web Applications: Building the Future with Django and TensorFlow (Medium): https://medium.com/@tarekeesa7/ai-powered-web-applications-building-the-future-with-django-and-tensorflow-4e71e83c0885
 - Building AI Applications on the Web (Manning): https://www.manning.com/books/building-ai-applications-on-the-web
 - Build a Local and Offline-Capable Chatbot with WebLLM (web.dev): https://web.dev/articles/ai-chatbot-webllm
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 16: An Introduction to Multi-Agent Systems](16-multi-agent-systems.md) | [Table of Contents](../README.md) | [Chapter 18: Architecting Real-Time AI Applications →](18-real-time-ai-applications.md)

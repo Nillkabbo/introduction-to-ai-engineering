@@ -215,15 +215,24 @@ A huge window does not make context free:
 A common strategy for managing long conversations is a "sliding window" of memory. We always keep the system prompt, but drop the oldest user/assistant messages once the history exceeds a token budget. The budget should leave room for the model's reply.
 
 ```python
-def trim_conversation_history(messages: list[dict], max_input_tokens: int = 100_000) -> list[dict]:
-    """Returns a copy of the history that fits within the token budget."""
+def trim_conversation_history(
+    messages: list[dict],
+    max_input_tokens: int = 100_000,
+    reserve_output_tokens: int = 4_000,
+) -> list[dict]:
+    """Returns a copy of the history that fits within the token budget,
+    leaving room for the model's reply."""
     def count(msg: dict) -> int:
         return len(encoder.encode(msg["content"]))
 
     system = [m for m in messages[:1] if m["role"] == "system"]
     history = messages[len(system):]
 
-    budget = max_input_tokens - sum(count(m) for m in system)
+    budget = max_input_tokens - reserve_output_tokens - sum(count(m) for m in system)
+    if history and count(history[-1]) > budget:
+        # Never silently drop the user's latest question.
+        raise ValueError("The newest message alone exceeds the token budget.")
+
     kept: list[dict] = []
     # Walk backwards from the newest message, keeping as many as fit.
     for msg in reversed(history):
@@ -237,15 +246,24 @@ def trim_conversation_history(messages: list[dict], max_input_tokens: int = 100_
 
 This returns a new list instead of modifying the caller's, and always keeps the most recent messages. More advanced strategies summarize older turns instead of discarding them, or store facts in a database and retrieve them when relevant (Chapter 27). Some providers now also offer server-side helpers for this, such as Anthropic's automatic context compaction.
 
-## What You've Learned
+## Key Takeaways
 
-You now understand the three fundamental concepts that govern how you will build with LLMs.
-
-1.  **Tokens are the currency.** Every interaction has a cost. Be concise to save money.
-2.  **Embeddings capture meaning.** This allows for powerful semantic search and relevance ranking, far beyond simple keyword matching.
-3.  **Context windows bound the working memory.** The model only knows what you send in each request, the window caps how much that can be, and you are responsible for deciding what goes in.
+-   **Tokens are the unit of cost and latency.** You pay for every input and output token, and different providers tokenize the same text differently. Use `tiktoken` with `o200k_base` for quick estimates, and the response's `usage` object or the provider's token-counting endpoint for exact numbers.
+-   **Save tokens where it counts.** The big savings come from controlling large inputs (conversation history, pasted documents) and output length, not from shaving words off a one-line instruction. Never cut context the model actually needs.
+-   **Embeddings capture meaning as vectors.** `text-embedding-3-small` returns 1536 numbers per text, and you compare texts with cosine similarity (a plain dot product for OpenAI's normalized vectors; normalize first for other providers). Embed many texts in one API call.
+-   **Semantic search ranks, it does not reason.** It finds matches that share no keywords, but the top hit is not guaranteed to be the right fix, so retrieve the top few candidates and let a model or a person decide.
+-   **Every request is stateless.** The model only knows what you send in that call. Exceeding the context window gets the request rejected rather than silently forgotten, and your code decides what to keep, drop, or summarize.
+-   **A large window is not free.** Cost and latency grow with input size and quality drops for information buried in the middle, so trim history with a sliding window that keeps the system prompt, returns a copy, and leaves room for the reply.
 
 These three ideas—cost, meaning, and memory—are the levers you will constantly be pulling and balancing as an AI developer. In the next chapter, we will get our hands dirty and set up a professional development environment so you can start building real applications on this foundation.
+
+## Exercises
+
+**1. Warm-up:** Use `o200k_base` to count tokens for five IoT strings: a plain English status sentence, a pretty-printed JSON telemetry payload (for example `{"device_id": "TEMP-042", "temp_c": 85.2, "status": "WARNING"}` with indentation), the same payload as compact JSON with no spaces, a device UUID, and the status sentence translated into another language. Print a table of characters, tokens, and characters per token for each. Then send one of them through `client.responses.create` and compare `response.usage.input_tokens` with your estimate. You are done when you can explain which format is cheapest and why the billed count differs from your local count.
+
+**2. Build:** Extend `find_most_similar` into `top_k(query, options, k=3)` that returns `(option, score)` pairs sorted by score, and grow the knowledge base to about eight troubleshooting steps. Write a labelled test set of eight user complaints, each paired with the step you consider correct, and embed the knowledge base only once instead of on every query. You are done when the script prints top-1 and top-3 hit rates for your test set and you have looked at every miss to decide whether the query, the knowledge base wording, or the expected label was the problem.
+
+**3. Stretch:** Write tests (plain `assert` statements are fine) for `trim_conversation_history`: the system prompt is always kept, the caller's list is not modified, the result plus `reserve_output_tokens` fits the budget, the newest message is always included, and an oversized newest message raises `ValueError`. Then add a `summarize` option: instead of discarding the dropped older messages, replace them with a single model-written summary message placed right after the system prompt. You are done when all your tests pass (use a fake summarizer function in the tests so they need no API call) and a 50-turn sample conversation stays under budget while the summary still mentions the device ID from turn 1.
 
 # References and Further Reading
 
@@ -255,3 +273,9 @@ These three ideas—cost, meaning, and memory—are the levers you will constant
 - AI Tokens Explained - What They Are and Why They Matter. https://zenvanriel.nl/ai-engineer-blog/ai-tokens-explained-what-they-are-and-why-they-matter/
 - Lost in the Middle: How Language Models Use Long Contexts (Liu et al., 2023). https://arxiv.org/abs/2307.03172
 - tiktoken (OpenAI's tokenizer library). https://github.com/openai/tiktoken
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 1: Welcome to AI Engineering](01-ai-engineering.md) | [Table of Contents](../README.md) | [Chapter 3: Setting Up Your Development Environment →](03-development-environment.md)

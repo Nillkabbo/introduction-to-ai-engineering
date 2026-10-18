@@ -173,3 +173,9 @@ For becoming a world-class AI practitioner:
 - Artificial Intelligence Engineering | Software Engineering Institute, Carnegie Mellon University. https://www.sei.cmu.edu/our-work/artificial-intelligence-engineering/
 - What is Artificial Intelligence Engineering? | MIT Professional Education. https://professionalprograms.mit.edu/blog/technology/artificial-intelligence-engineering/
 - What Is AI Systems Engineering? | Educating Engineers. https://educatingengineers.com/blog/ai-systems-engineering/
+
+<!-- chapter-nav -->
+
+---
+
+[Table of Contents](../README.md) | [Chapter 1: Welcome to AI Engineering →](01-ai-engineering.md)

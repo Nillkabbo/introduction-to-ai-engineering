@@ -349,14 +349,24 @@ More advanced routers add health checks, latency tracking, and circuit breakers 
 
 You have now learned five essential patterns for building production-ready AI applications. These techniques—retries, rate limiting, adaptive responses, caching, and failover—are the building blocks of robust and scalable systems.
 
--   **Start with robust error handling** that distinguishes retryable from permanent errors.
--   **Use the SDK's built-in retries**, and add your own layer (for example `tenacity`) only when you need more, without stacking the two.
--   **Implement a rate limiter** for both requests and tokens to stay within your quotas.
--   **Stream long responses** for interactive users, and use **Batch APIs** for offline work.
--   **Cache responses where repeats are acceptable**, with keys that capture every input.
--   **Build a multi-provider failover system** for high availability, and test the fallback models.
-
 By incorporating these patterns into your development workflow, you move from being a user of AI APIs to being an architect of intelligent systems. You are now prepared to build applications that can withstand the rigors of a production environment.
+
+## Key Takeaways
+
+-   **Catch specific SDK exceptions.** Retry transient errors (`RateLimitError`, `APITimeoutError`, `APIConnectionError`, `InternalServerError`) and fail fast on permanent ones such as `AuthenticationError` and `BadRequestError`. Create the client once and reuse it.
+-   **Use the SDK's built-in retries first.** The official SDKs already retry twice with backoff, so tune `max_retries` and `timeout` before adding anything. If you add your own layer (for example `tenacity` with exponential backoff and jitter), set `max_retries=0` on that client so the two layers do not multiply.
+-   **Throttle yourself with a token bucket** sized for both requests per minute and tokens per minute, and move the bucket to a shared store such as Redis when several processes share one quota.
+-   **Pick the response mode per use case:** block for short or machine-parsed answers, stream long text shown to people, and use the providers' Batch APIs (about half price, results within about 24 hours) for offline work.
+-   **Cache responses only where repeats are acceptable**, with a key that includes every input that affects the output (model, instructions, input, and generation settings). Provider-side prompt caching is a separate saving that complements it.
+-   **Fail over across providers behind one `call()` interface**, but only on errors another provider can fix (outages, timeouts, rate limits), and evaluate the fallback models on your test set before you rely on them.
+
+## Exercises
+
+**1. Warm-up:** Write a test for your retry policy without calling any API. Apply the same `@retry` settings as `robust_ai_call` (with a near-zero wait so the test is fast) to a fake function that raises `openai.APIConnectionError(request=httpx.Request("POST", "https://example.invalid"))` on its first two calls and then succeeds, and to a second fake that raises `ValueError` as a stand-in for a permanent error. Done means assertions pass showing the first function was called exactly 3 times and returned its value, and the second was called exactly once and its exception propagated.
+
+**2. Build:** Extend `TokenBucketRateLimiter` so each request takes a `cost`, add a `wait_and_acquire(cost)` method that sleeps until enough capacity has accrued, and raise an error immediately if `cost` is larger than the bucket's capacity. Combine two buckets, one for requests per minute and one for tokens per minute, estimating each request's tokens with the counting approach from Chapter 2. Done means a simulation of 100 fake requests of random sizes against limits of 60 RPM and 10,000 TPM records a timestamp and cost per request, and a check over that log confirms the token bucket's guarantee: in any window of `t` seconds, the requests (and tokens) sent never exceed the bucket's capacity plus `t` times its refill rate.
+
+**3. Stretch:** Make `FailoverRouter` selective: fail over only on each SDK's transient errors (connection errors, timeouts, rate limits, 5xx) and re-raise everything else immediately. Add a circuit breaker that skips a provider for 60 seconds after 3 consecutive failures, and make the clock injectable so you can test the cooldown without sleeping. Done means that pointing the OpenAI client at an unreachable address (for example `base_url="http://127.0.0.1:9"`) makes requests fail over to Anthropic, the log shows OpenAI being skipped after the third failure until the cooldown ends, and a deliberately invalid request raises at once without trying the other providers.
 
 # References and Further Reading
 
@@ -366,3 +376,9 @@ By incorporating these patterns into your development workflow, you move from be
 - AI Patterns: A Structured Approach to Artificial Intelligence Development. https://medium.com/@xavier.mehaut/ai-patterns-a-structured-approach-to-artificial-intelligence-development-9d97903c8e34
 - Exponential Backoff And Jitter (AWS Architecture Blog). https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
 - Tenacity documentation. https://tenacity.readthedocs.io/
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 7: Mastering the Google Gemini API](07-google-gemini-api-guide.md) | [Table of Contents](../README.md) | [Chapter 9: Fundamental Prompt Engineering →](09-fundamental-prompt-engineering.md)

@@ -126,6 +126,23 @@ You have the tools. You have the knowledge. You have the blueprint.
 
 Go build the future.
 
+## Key Takeaways
+
+-   Start from a specific, costly user problem, not a capability: a "virtual staging tool for real estate agents", not an "image generation app". The AI is the engine; the product is the whole car around it.
+-   Fill in the 11-box **Lean AI Canvas** before writing production code, and challenge the AI Core box hardest: PredictoMaint's time-to-failure prediction is a classic ML problem, while LLMs belong around it, explaining anomalies, searching manuals with RAG, and drafting work orders.
+-   A **Wizard of Oz MVP**, with a human expert behind a simple interface, tests whether customers will actually use and pay for the result before you build the AI, and its expert outputs become your first evaluation and training data.
+-   A **data flywheel** only turns if the architecture captures outcomes (such as failure events) from day one and your contracts explicitly allow you to use customer data; in B2B, that permission is often the hard part.
+-   Run the ethical review before launch: the worst case of a wrong answer and its safeguards (such as human approval), bias in the data, privacy of what goes to third-party APIs, transparency about AI-generated content (a legal requirement under the EU AI Act), and prompt injection.
+-   AI products are never done: turn every user-reported failure into an eval case, run the evals in CI on every change, and rely on them to switch models when providers release new ones or retire old ones.
+
+## Exercises
+
+**1. Warm-up:** Critique the PredictoMaint canvas. For each of the 11 boxes, write down its riskiest assumption and one cheap test (customer interviews, a landing page, a Wizard of Oz trial) that could confirm or kill it within two weeks. Done means an 11-row table of assumption, test, and a numeric pass or fail criterion (for example "at least 5 of 10 plant managers upload a month of sensor data"), with the three riskiest rows marked as the ones to test first.
+
+**2. Build:** Fill in a Lean AI Canvas for your own IoT product idea, starting from one specific user and problem (for example fleet operators whose firmware updates fail in the field). In box 5, say which parts are deterministic rules, which are classical ML, which use an LLM, and which use RAG, with a one-line reason for each and the book chapter it draws on. In box 9, estimate the AI cost per customer per month from expected requests, tokens per request, and current model prices. Done means a one-page canvas plus a unit-economics line showing gross margin per customer at your proposed price, with every assumption written down so someone else can challenge it.
+
+**3. Stretch:** Write the launch evaluation plan for the first LLM feature of your product (or PredictoMaint's AI-generated root cause reports). It should define a golden set of at least 30 cases seeded from Wizard of Oz outputs, metrics with go/no-go thresholds (for example faithfulness to the sensor data and manuals, judged by an LLM calibrated against expert ratings, and zero unsafe recommendations), the eval gates that run in CI when a prompt or model changes, how user-reported failures become new test cases, and the rollback trigger after release. Done means a plan another engineer could implement without asking you a question, including a threshold table and a named owner for each answer in the ethical review checklist.
+
 # References and Further Reading
 
 - [Your Guide to AI Product Strategy (Aakash Gupta, 2025)](https://www.news.aakashg.com/p/ai-product-strategy?utm_source=publication-search)
@@ -133,3 +150,9 @@ Go build the future.
 - [The State of Artificial Intelligence in 2025: Breakthroughs, Challenges, and the Road Ahead (TS2.Tech)](https://ts2.tech/en/the-state-of-artificial-intelligence-in-2025-breakthroughs-challenges-and-the-road-ahead-updated-2025-july-1st-1202-cet/)
 - [AI Product Management: How to Build AI Products (Product School)](https://productschool.com/blog/product-management-2/product-management-for-ai/)
 - [How to Build an AI Product: A Step-by-Step Guide (VentureBeat)](https://venturebeat.com/ai/how-to-build-an-ai-product-a-step-by-step-guide/)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 29: Emerging Patterns and Future Trends](29-emerging-patterns-future-trends.md) | [Table of Contents](../README.md)

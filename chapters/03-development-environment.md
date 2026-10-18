@@ -304,17 +304,23 @@ python main.py
 
 You can now have a continuous conversation with your AI assistant. Ask it a question, and then ask a follow-up. It will remember the context because we are sending the entire `conversation_history` with each new request. (For very long chats, trim the history as shown in Chapter 2. The Responses API can also store the conversation on OpenAI's side if you pass `previous_response_id`, which Chapter 5 covers.)
 
-## What You've Accomplished
+## Key Takeaways
 
-Congratulations! You have successfully set up a professional-grade development environment for building AI applications. You've learned to:
-
--   Create isolated Python projects using virtual environments.
--   Install the necessary AI libraries.
--   Handle your secret API keys securely using `.env` files and environment variables—the single most important safety practice.
--   Structure your project with a `requirements.txt` file for reproducibility.
--   Build and run a complete, conversational AI application.
+-   Give every project its own virtual environment (`python3 -m venv venv`, or `uv`) on Python 3.10 or newer, and activate it before installing anything.
+-   Keep secrets and settings out of code: put the API key and the model ID in `.env`, load them with `load_dotenv()` and `os.getenv()`, and add `.env` and `venv/` to `.gitignore` before your first commit.
+-   Fail fast with a clear message when configuration is missing, and catch `openai.OpenAIError` around API calls so a failure becomes a readable error instead of a crash.
+-   Record exact dependency versions with `pip freeze > requirements.txt` (or `uv.lock`) so anyone can rebuild the same environment.
+-   The chatbot "remembers" only because it resends the full `conversation_history` on every call. If a call fails, remove the unanswered user message so the history stays consistent.
 
 This solid foundation is not just for learning; it's the same setup professionals use to build real-world products. You are now ready to move beyond the basics and start exploring the more advanced capabilities of AI models.
+
+## Exercises
+
+**1. Warm-up:** Prove your project is reproducible. In a new, empty directory, create a fresh virtual environment, install only from your `requirements.txt`, copy in your `.env`, and run `main.py`. You are done when the chatbot answers without any extra `pip install`, and `git check-ignore .env` (run inside your project, after `git init` if needed) prints `.env`.
+
+**2. Build:** Turn the generic chatbot into an IoT support assistant. Load the system prompt from a `system_prompt.txt` file, and add two commands to the loop: `/reset`, which clears the history back to just the system message, and `/history`, which prints how many messages are stored. You are done when this check passes: tell the bot "My device ID is TEMP-042", ask "What is my device ID?" and get the right answer, type `/reset`, ask again, and get an answer that no longer knows the ID.
+
+**3. Stretch:** Test the chatbot's failure path without spending tokens. Replace `bot.client` with a small fake object whose `responses.create` raises `openai.OpenAIError("simulated outage")`, call `have_conversation`, and assert that the reply is an error message and `len(bot.conversation_history)` did not change. Then use a second fake that returns an object with an `output_text` attribute and assert that the history grew by exactly two messages. You are done when both checks pass, and setting `OPENAI_MODEL` in `.env` to a model ID that does not exist produces the same clean error in the real chatbot.
 
 # References and Further Reading
 
@@ -322,3 +328,9 @@ This solid foundation is not just for learning; it's the same setup professional
 - Setting Up a Python Environment for AI Development: A Comprehensive Guide. https://medium.com/@flexianadevgroup/setting-up-a-python-environment-for-ai-development-a-comprehensive-guide-022602e337f4
 - Getting Started with AI Development: Setting Up Your Python Environment. https://dev.to/sahilmadhyan/getting-started-with-ai-development-setting-up-your-python-environment-275o
 - The Ultimate Deep Learning Project Structure: A Software Engineer’s Guide into the Land of AI. https://ai.plainenglish.io/the-ultimate-deep-learning-project-structure-a-software-engineers-guide-into-the-land-of-ai-c383f234fd2f
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 2: The Engine Room of AI: Tokens, Embeddings, and Context Windows](02-core-concepts.md) | [Table of Contents](../README.md) | [Chapter 4: Understanding AI Capabilities and Limitations →](04-ai-capabilities-limitations.md)

@@ -358,6 +358,23 @@ Prompt engineering is the new essential skill for developers in the age of AI. I
 
 Remember the core principle: **garbage in, garbage out.** A vague prompt yields a vague response. A specific, well-structured, context-rich prompt is the key to getting the most out of any LLM. Treat prompts like code: version them, test them against a set of cases, and measure before you change them. You are now equipped to build more reliable, accurate, and powerful AI features.
 
+## Key Takeaways
+
+-   A good prompt states the task, context, and output format, and adds examples and a role where they help. Wrap logs and user text in delimiters such as `<log>...</log>` so the model can tell instructions from data.
+-   Explain why a rule exists ("under 50 words because it shows on a device screen") instead of shouting it in capitals; modern models generalize from reasons.
+-   Few-shot examples teach the exact pattern and label set you want, quirks included, so pick varied examples that cover the tricky cases and reject any label outside your list in code.
+-   Reasoning models already think internally, so "think step by step" adds little. Spell out the steps of *your* process and ask for each step's conclusion in the visible answer, and do not treat that explanation as a faithful trace of how the model decided.
+-   A persona changes focus, vocabulary, and tone, not factual accuracy. Put it in `instructions` and spell out the priorities the role implies.
+-   Compare prompt variants with a small eval: labelled cases, an automatic `score()` function, and the pass rate over the whole set rather than one eyeballed output.
+
+## Exercises
+
+**1. Warm-up:** Take the `few_shot_classifier` and write 10 labelled alerts of your own (at least two per category, including one ambiguous case). Run each alert through the classifier and print the accuracy and the list of misclassified alerts. You are done when you can report a number such as "9/10 correct" and name the alert it got wrong.
+
+**2. Build:** Extend the "Comparing Prompts" eval to 12 test cases, including at least three awkward inputs (a unit like "212F", a value written in words, a device ID in lowercase). Add a third variant, `v3_fewshot`, that includes two worked examples, and run every variant three times. You are done when the script prints the pass rate of each variant averaged over the three runs, and you can say whether `v3_fewshot` beats `v2_keys` by more than the run-to-run variation.
+
+**3. Stretch:** Harden `IoTDiagnosticSystem.generate_report` so that a failure in one step does not lose the whole report. Wrap each model call so a raised API error (or an empty reply) records an `"error"` entry for that field while the other steps still run, and log how often the classifier returned `Unclassified`. You are done when a test that makes the security call raise an exception (for example by patching `_ask`) still gets back a report with a valid `category` and `diagnosis_reasoning`.
+
 # References and Further Reading
 
 - Prompt Engineering: The Definitive Step-By-Step How to Guide (Plain English). https://ai.plainenglish.io/prompt-engineering-the-definitive-step-by-step-how-to-guide-fb7c5eea1900
@@ -367,3 +384,9 @@ Remember the core principle: **garbage in, garbage out.** A vague prompt yields 
 - Chain-of-Thought Prompting Elicits Reasoning in Large Language Models (Wei et al., 2022). https://arxiv.org/abs/2201.11903
 - Prompt engineering overview (Claude documentation). https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/overview
 - Prompt engineering guide (OpenAI documentation). https://platform.openai.com/docs/guides/prompt-engineering
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 8: API Design Patterns and Best Practices](08-api-design-patterns.md) | [Table of Contents](../README.md) | [Chapter 10: Advanced Prompting Strategies →](10-advanced-prompting-strategies.md)

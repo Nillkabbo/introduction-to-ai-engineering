@@ -239,6 +239,23 @@ Fine-tuning is a powerful tool, best used deliberately:
 -   **Data and evaluation are everything:** curate examples carefully, hold out a test set, and ship only what beats the prompted baseline.
 -   **Plan for platform change:** prefer approaches (like open-weight LoRA adapters plus a reproducible training script) that you can re-run when a base model or platform goes away.
 
+## Key Takeaways
+
+-   Work through the decision tree in order: a strong prompt with few-shot examples and Structured Outputs first, RAG when the gap is knowledge, and fine-tuning only for a consistent behavior, format, or classification scheme, or to distill a task into a smaller, cheaper model.
+-   Fine-tuning teaches behavior, not facts. Proprietary data such as the AquaSense error codes belongs in a lookup table or a retrieval index, where unknown codes get an honest answer and updates are a one-line change.
+-   Training data is chat-format JSONL. Keep labels exactly consistent, cover the hard cases and the real class balance, split into train, validation, and test sets (80/10/10 in the chapter's script), and use the same system prompt at inference time as in training.
+-   During training, compare training and validation loss: if training loss keeps falling while validation loss rises, the model is overfitting, so stop earlier, use fewer epochs, or add more varied data.
+-   A tuned model ships only if it beats the strongest prompted baseline on the held-out test set. Compare confusion counts (which mistakes it makes), latency, and cost per request at your volume, not just headline accuracy.
+-   Hosted options shift (OpenAI closed its fine-tuning platform to new users in May 2026), so a reproducible LoRA/QLoRA script on an open-weight model, with TRL or PEFT for training and vLLM for serving, is the most portable path.
+
+## Exercises
+
+**1. Warm-up:** Write a `validate_dataset(paths)` script that checks `train.jsonl` and `validation.jsonl` before any training run: every line parses as JSON, each example has exactly a system, user, and assistant message in that order, the system prompt equals `SYSTEM`, and the assistant content is one of the four categories. It should also print the class counts per file and flag any log text that appears in more than one split. Done means the script reports zero errors on your files, and catches a line you deliberately corrupt (for example a label of `power` instead of `Power`, or a duplicated log in both files).
+
+**2. Build:** Assemble a test set of at least 50 labelled IoT logs, including ambiguous ones such as "GW-03 rebooted after a brownout" (Power or Connectivity?). Run `evaluate` on it twice, once with a zero-shot prompt and once with `FEW_SHOT`, and also record mean latency per call and an estimated cost per 1,000 requests from the token usage. Count any output that is not exactly one of the four category names as wrong, and report how often that happens. Done means a small comparison table plus a written decision on whether fine-tuning is worth attempting, given the bar the prompted baseline sets.
+
+**3. Stretch:** Fine-tune a small open-weight model (1 to 4 billion parameters) with LoRA using TRL's `SFTTrainer` on your `train.jsonl`, logging training and validation loss at least once per epoch, on a rented or free cloud GPU. Serve the adapter with vLLM's OpenAI-compatible server and score it with `classify_log` and `evaluate` on the same test set as the Build exercise. Done means a loss plot on which you mark the epoch where you would stop, a new row in your comparison table, and a ship or no-ship decision justified by accuracy, the confusion counts, latency, and cost.
+
 # References and Further Reading
 
 - [LoRA: Low-Rank Adaptation of Large Language Models (Hu et al., 2021)](https://arxiv.org/abs/2106.09685)
@@ -247,3 +264,9 @@ Fine-tuning is a powerful tool, best used deliberately:
 - [Hugging Face PEFT documentation](https://huggingface.co/docs/peft/)
 - [vLLM documentation (serving open-weight models and LoRA adapters)](https://docs.vllm.ai/)
 - [Fine-tuning now available for GPT-4o (OpenAI; see the 2026 platform update on this page)](https://openai.com/index/gpt-4o-fine-tuning/)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 25: Deployment and DevOps for AI Applications](25-deployment-devops.md) | [Table of Contents](../README.md) | [Chapter 27: Retrieval-Augmented Generation (RAG) →](27-rag-retrieval-augmented-generation.md)

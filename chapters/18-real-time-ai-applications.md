@@ -239,6 +239,7 @@ Let's see how a priority queue can be implemented.
 ```python
 import json
 import time
+from typing import Optional
 
 class PriorityQueue:
     def __init__(self, redis_client):
@@ -305,6 +306,22 @@ The workflow is as follows:
 
 This architecture is robust, scalable, and responsive. It uses cheap, fast computation for initial filtering and reserves expensive, slow AI analysis for the most important events, all while providing a real-time experience to the end-user.
 
+## Key Takeaways
+
+-   LLM calls take hundreds of milliseconds to many seconds and vary from call to call, so keep them off the critical path: fast, deterministic code (such as a rule-based threshold check) makes the real-time decision, and the LLM adds analysis and explanation alongside it.
+-   A `ConnectionManager` that tracks open WebSockets lets the server push updates to every client instantly; iterate over a copy of the connections when broadcasting and drop any socket that fails to send.
+-   Long-running AI work belongs in background workers: the API submits a Celery task with `.delay()`, returns a `task_id` immediately, and the client checks status later, so the web process stays responsive.
+-   A two-level cache (bounded, expiring in-memory L1 plus shared Redis L2) keyed on a hash of every parameter that affects the output cuts latency and cost; keep the L1 TTL short, and don't cache analyses of live, changing situations such as active critical alerts.
+-   Control load with per-user rate limiting and priority handling, either a Redis sorted set scored by priority and time or, more simply, separate `critical` and `routine` queues with dedicated workers, so urgent work never waits behind a backlog.
+
+## Exercises
+
+**1. Warm-up:** Rewrite `traditional_monitoring` so that it analyzes a list of 10 readings concurrently with `openai.AsyncOpenAI()` and `asyncio.gather`, and so that one failed call is logged and skipped instead of crashing the loop (use `return_exceptions=True` or a `try`/`except` per reading). Time both versions on the same readings. Done means the concurrent version finishes in roughly the time of the slowest single call, and when you force one reading to fail (for example by sending an oversized input), the other nine results are still printed.
+
+**2. Build:** Put the `AICache` class in front of a real model call and prove it works. Write a small test script that sends the same request three times and a slightly different request (different model or instructions) once, and records for each call whether it was an L1 hit, L2 hit, or miss, plus its latency. Done means the output shows miss, L1 hit, L1 hit for the repeated request and a miss for the changed one, and after restarting the script (empty L1) the first repeated request is an L2 hit.
+
+**3. Stretch:** Build the front of the anomaly detection pipeline: a WebSocket endpoint that receives JSON sensor readings, runs a rule-based `AnomalyDetector` (for example temperature above 90 or a jump of more than 15 degrees since the last reading), and enqueues only anomalies into the `PriorityQueue`, with priority 10 for critical readings and 1 for warnings. Write a simulator that sends 1,000 readings, about 2% of them anomalous, and a worker loop that calls `dequeue()`. Done means you can report how many readings reached the queue versus how many arrived, and a test shows that a critical reading enqueued after 20 warnings is dequeued first.
+
 # References and Further Reading
 
 - Bringing Real-Time AI To The Core Of Your Business (LinkedIn): https://www.linkedin.com/pulse/bringing-real-time-ai-core-your-business-bernard-marr
@@ -313,3 +330,9 @@ This architecture is robust, scalable, and responsive. It uses cheap, fast compu
 - Agents as Escalators: Real-time AI Video Monitoring with Amazon Bedrock Agents and Video Streams (AWS): https://aws.amazon.com/blogs/machine-learning/agents-as-escalators-real-time-ai-video-monitoring-with-amazon-bedrock-agents-and-video-streams/
 - Real-Time Machine Learning: The Complete Guide (Xenonstack): https://www.xenonstack.com/blog/real-time-machine-learning
 - Real-Time Analytics with AI: Why Speed Matters in the Age of Data (DEV.to): https://dev.to/sanjana_shah_bia/real-time-analytics-with-ai-why-speed-matters-in-the-age-of-data-3006
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 17: Building AI-Powered Web Applications with Python](17-building-ai-powered-web-applications.md) | [Table of Contents](../README.md) | [Chapter 19: AI Application Architecture Patterns →](19-ai-application-architecture-patterns.md)

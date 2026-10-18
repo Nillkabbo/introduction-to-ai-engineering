@@ -8,11 +8,10 @@ Think of it as the difference between hiring a generalist and hiring a specialis
 
 By the end of this chapter, you will be able to:
 
-- Craft prompts tailored to specific industries like manufacturing, healthcare, and finance.
+- Craft prompts that supply domain context (standards, terminology, constraints) instead of relying on personas.
 - Generate high-quality, domain-specific technical documentation.
 - Build sophisticated code generation workflows that adhere to industry best practices.
 - Design AI-powered data analysis systems that understand domain-specific KPIs.
-- Develop effective, context-aware customer service automation for specialized products.
 - Create detailed IoT device troubleshooting guides using embedded domain knowledge.
 
 ## The Power of Context: Generic vs. Domain-Specific Prompts
@@ -264,7 +263,7 @@ print(code_review)
 
 ## Domain 3: Data Analysis and Insights
 
-When analyzing data, providing domain context transforms the AI from a simple data processor into a insightful analyst.
+When analyzing data, providing domain context transforms the AI from a simple data processor into an insightful analyst.
 
 ### Industrial Manufacturing Analytics
 
@@ -403,9 +402,32 @@ Remember these key best practices:
 
 By applying these techniques, you can transform a general-purpose language model into a team of specialized virtual experts, ready to tackle complex challenges across any industry.
 
+## Key Takeaways
+
+- Most of the gain from domain prompting comes from the knowledge you supply (targets, thresholds, focus areas, procedures), not from the persona label. Put the role in `instructions` and the task and data in `input`.
+- Listing mandatory patterns (reconnection with exponential backoff, TLS on port 8883, async I/O, logging) or review criteria turns a generic code request into one that follows your domain's engineering standards.
+- Compute domain metrics such as OEE (availability x performance x quality) in code and give the model the results to interpret; tell it not to recalculate and not to draw conclusions, such as statistical control, that the data cannot support.
+- When generating documentation, tell the model to document only what the spec states and mark gaps with `TODO:`, or it will invent plausible endpoints, fields, and error codes.
+- A small structured knowledge base per device type (common issues, tools, safety notes) injected into the prompt is the simplest form of grounding; Chapter 27 scales the idea up with retrieval.
+- In regulated or safety-critical domains, an expert persona makes output sound authoritative without making it correct, so keep a qualified human in the loop and ground answers in approved sources.
+
+## Exercises
+
+**1. Warm-up:** Write a checklist of four points an expert should raise about `factory_data` (for example: output is 4% below target, defect rate is 50% above target, the motor is within 5 degrees of its limit, a link between motor temperature and defects). Run `generic_analysis` and `domain_specific_analysis` three times each and score each output against the checklist by hand. You are done when you can report the average score per prompt and say whether the domain prompt's advantage held across all three runs.
+
+**2. Build:** Extend `IoTTroubleshootingSystem` with a third device type (for example, a LoRaWAN soil moisture sensor) and make an unknown `device_type` raise a `ValueError` instead of silently sending "N/A" to the model. Then change the guide to a Structured Output (Chapter 11) with a Pydantic model holding a `safety_note`, a list of hypotheses with verification steps, and an escalation condition. You are done when a test confirms that each guide's `safety_note` contains the knowledge base's safety text and that every hypothesis has at least one verification step.
+
+**3. Stretch:** Turn `review_iot_code` into something you can measure. Write down the known problems in `sample_code` (no TLS on port 1883, no reconnection handling, `print` instead of logging, a polling loop with `sleep`, no authentication), switch the review to a Structured Output where each issue has a `quoted_line` and a `problem`, and run it five times. You are done when your script reports the recall of known problems per run and flags any issue whose `quoted_line` does not appear verbatim in `sample_code`.
+
 # References and Further Reading
 
 - LLM Prompt Library (battle-tested prompt templates). https://abilzerian.github.io/LLM-Prompt-Library/
 - AwesomeGPTSystemPrompts (GitHub collection). https://github.com/AntreasAntoniou/AwesomeGPTSystemPrompts
 - Prompt Engineering Guide (Prompting Guide). https://www.promptingguide.ai/
 - Prompt Creator: Prompt Engineering for AI (Prompt Creator). https://promptcreator.ai/
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 11: Mastering Structured Output](11-structured-output-generation.md) | [Table of Contents](../README.md) | [Chapter 13: From Chatbots to Autonomous Agents →](13-introduction-to-ai-agents.md)

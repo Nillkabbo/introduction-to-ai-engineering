@@ -276,7 +276,7 @@ class SmartSafeAssistant:
             return self._handle_general(question)
 
     def _handle_math(self, question: str) -> str:
-        # Implements the safe "code generation + eval" pattern
+        # Implements the safe "translate to an expression, compute in code" pattern
         return safe_math_solver(question) # Assuming safe_math_solver is defined as above
 
     def _handle_current_info(self) -> str:
@@ -313,9 +313,32 @@ You now have a realistic and practical understanding of what AI can and cannot d
 
 By embracing this mindset, you'll avoid common pitfalls and build applications that are not only intelligent but also trustworthy. You are now prepared to dive into more advanced topics, armed with the critical judgment needed to build responsibly.
 
+## Key Takeaways
+
+-   LLMs are strong at pattern-based language work: summarizing, translating, extracting fields from logs, explaining anomalies, and drafting code. Treat generated code as a draft that needs review and tests, and for large datasets let a statistical rule flag candidates and the LLM explain them.
+-   For exact computation, have the model translate the problem into an expression and compute it in code with a restricted evaluator like `evaluate_arithmetic`. Never pass model output to `eval()`; tool calling (Chapter 14) is the general form of this pattern.
+-   A bare model call knows nothing after its training cutoff and nothing about your private data. Supply current information in the prompt or give the model a tool to fetch it.
+-   Hallucinations now concentrate in specific numbers, citations and URLs, niche product details, and questions that presuppose something false. Verify specific factual claims against an external source; grounding answers in documents you supply (Chapter 27) is the main defence.
+-   Self-reported confidence is poorly calibrated, and a second "fact-checker" call shares the first call's knowledge. Both help you find what to check, but neither verifies anything.
+-   Put your own logic around the model: route each request by type, as `SmartSafeAssistant` does, so math goes to code and live-data questions get an honest answer instead of a guess.
+
+## Exercises
+
+**1. Warm-up:** Measure how arithmetic accuracy changes with problem size instead of trusting one example. Generate 20 random multiplication problems, from 2-digit by 2-digit up to 6-digit by 6-digit, send each with "Reply with only the number.", and compare the reply with Python's result. Count any reply that does not parse as a number as wrong. You are done when you have a small table of accuracy by digit count for your model.
+
+**2. Build:** Write tests for `evaluate_arithmetic`: valid expressions such as `48213 * 7919` and `-3 + 4 / 2` return the right value, and inputs such as `__import__('os').system('ls')`, `2 ** 10`, `abs(-1)`, `x + 1` and `"a" * 3` raise `ValueError`. Decide what should happen for `True + 1` and make your test enforce it. Then run `safe_math_solver` on ten IoT word problems with known answers (for example, "120 sensors each report every 5 minutes; how many readings per day?"). You are done when all evaluator tests pass and you can report how many of the ten problems came back exactly right, with each failure classified as a wrong expression or a rejected expression.
+
+**3. Stretch:** Build a small hallucination probe set of ten IoT questions: five about real, checkable facts (such as the LoRaWAN frequency band used in Europe) and five that presuppose a product or standard that does not exist. Run each question three times through `get_response_with_confidence`, and label every answer by hand as correct, admitted not knowing, or fabricated. You are done when you have a table of fabrication rates for both halves and have checked whether any fabricated answer was labelled "Confidence: high".
+
 # References and Further Reading
 
 - Understanding The Limitations Of AI (Artificial Intelligence). https://medium.com/@marklevisebook/understanding-the-limitations-of-ai-artificial-intelligence-a264c1e0b8ab
 - AI’s limitations: What artificial intelligence can’t do. https://lumenalta.com/insights/ai-limitations-what-artificial-intelligence-can-t-do
 - 14 Things AI Can — and Can't Do. GeeksforGeeks. https://www.geeksforgeeks.org/14-things-ai-can-and-cant-do/
 - Limitations of AI: What’s Holding Artificial Intelligence Back in 2025? https://visionx.io/blog/limitations-of-ai/
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 3: Setting Up Your Development Environment](03-development-environment.md) | [Table of Contents](../README.md) | [Chapter 5: A Developer's Guide to the OpenAI API →](05-openai-api-complete-guide.md)

@@ -216,6 +216,23 @@ The AI landscape keeps evolving, and your job is to build with today's tools whi
 
 The specific models and products will keep changing. The engineering principles of this book (measure, constrain, secure, and keep humans in control where it matters) are what will keep your systems working as they do.
 
+## Key Takeaways
+
+-   Treat reasoning effort as a per-task setting chosen by measurement: low for routing and extraction, higher for planning and code, decided by quality, latency, and cost on your own evals rather than left at a default.
+-   Production agents, including coding and computer-use agents, need durable state, budgets, least privilege, human approval for consequential actions, and defences against indirect prompt injection; MCP connects agents to tools and data, and A2A connects agents to each other.
+-   Multimodal models can take the PDF, video, and audio directly (with `google-genai`, upload with `client.files.upload` and wait until the file leaves the `PROCESSING` state), but treat their observations as hypotheses that direct a technician, not as an inspection.
+-   Self-hosting open-weight and small models buys data control, predictable cost at volume, offline operation, and low latency, at the price of owning the serving stack; a common design is a local model for routine work with escalation to a frontier API.
+-   Edge AI for IoT mostly means compact, specialized models run with ONNX Runtime, LiteRT, or OpenVINO that act locally, with deterministic rules as the final safety layer, only summaries and anomalies sent to the cloud, and models evaluated, signed, and rolled out gradually.
+-   Federated learning needs secure aggregation and often differential privacy, because raw updates can leak training examples; quantum computing is a post-quantum cryptography migration to plan for, not an AI accelerator to design around.
+
+## Exercises
+
+**1. Warm-up:** Take 20 cases from an eval set you built earlier (for example the IoT log classification test set from Chapter 26) and run each one with `reasoning={"effort": ...}` set to `"low"`, `"medium"`, and `"high"` on the Responses API. Record accuracy, median latency, and total output tokens from `response.usage` for each setting. Done means a three-row table and a chosen effort level for this task, justified in one sentence by the numbers.
+
+**2. Build:** Make `inspection_loop` testable without a camera or GPU: add a `max_frames` parameter (or accept an iterator of frames) and inject a fake detector and fake callbacks that record their calls. Write tests that check: a frame at or above the threshold calls `stop_line` and sends a `defect` event; a heartbeat reports the right frame count; and when `send_to_cloud` raises a connection error, the loop still stops the line and keeps processing frames. Done means all tests pass, and the network-failure test fails against the original code, which shows why the local action must not depend on the cloud call succeeding.
+
+**3. Stretch:** Build the hybrid local/cloud pattern for IoT log classification. Run a small open-weight model locally behind an OpenAI-compatible server (for example vLLM or llama.cpp's `llama-server`), and escalate a request to your frontier model whenever the local output is not exactly one of the allowed categories or the local server times out. Done means a table comparing local-only, cloud-only, and hybrid on the same test set for accuracy, share of requests escalated, median latency, and estimated cost per 1,000 requests, plus a recommendation for which one you would run.
+
 # References and Further Reading
 
 - [Learning to reason with LLMs (OpenAI, 2024)](https://openai.com/index/learning-to-reason-with-llms/)
@@ -224,3 +241,9 @@ The specific models and products will keep changing. The engineering principles 
 - [Communication-Efficient Learning of Deep Networks from Decentralized Data (McMahan et al., 2016)](https://arxiv.org/abs/1602.05629)
 - [Deep Leakage from Gradients (Zhu et al., 2019)](https://arxiv.org/abs/1906.08797)
 - [Post-Quantum Cryptography standardization (NIST)](https://csrc.nist.gov/projects/post-quantum-cryptography)
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 28: AI Workflows and Orchestration](28-ai-workflows-orchestration.md) | [Table of Contents](../README.md) | [Chapter 30: Building Your AI Product →](30-building-ai-product.md)

@@ -14,7 +14,7 @@ By the end of this chapter, you will:
 -   Design and implement basic communication protocols for agent interaction.
 -   Explore different patterns of agent collaboration, including centralized and hierarchical models.
 -   Implement a consensus mechanism to enable agents to make group decisions.
--   Architect a complete smart city coordination system using a multi-agent approach.
+-   Decide when a multi-agent design is worth its extra cost and complexity.
 
 ## Why Multiple Agents? The Power of Specialization
 
@@ -447,13 +447,24 @@ In this scenario the Traffic and Emergency agents approve (the proposal concerns
 
 We've only scratched the surface of multi-agent systems, but the core concepts are clear. By moving from a single-agent mindset to a multi-agent one, we unlock the ability to solve problems of a much greater scale and complexity.
 
-The key takeaways are:
--   **Specialization:** Break down complex domains and assign them to expert agents.
--   **Communication:** Establish a clear, structured way for agents to exchange information.
--   **Collaboration Patterns:** Choose the right organizational structure (e.g., centralized, hierarchical) for your problem.
--   **Consensus:** When agents must agree, implement a formal mechanism for them to make group decisions.
+Specialization, structured communication, a fitting collaboration pattern and a formal way to reach agreement are the foundation for building everything from a small team of collaborating writing assistants to a vast network of agents managing global logistics. You now have the blueprint to design not just a single intelligent entity, but an entire society of them.
 
-These principles are the foundation for building everything from a small team of collaborating writing assistants to a vast network of agents managing global logistics. You now have the blueprint to design not just a single intelligent entity, but an entire society of them.
+## Key Takeaways
+
+-   **Start with one agent or a workflow.** Split into multiple agents only when the context is too much for one agent, independent sub-tasks can run in parallel, or parts of the work need different permissions. Multi-agent runs cost many times more tokens and struggle with tightly coupled tasks.
+-   **Orchestrator-worker is the most proven pattern.** A coordinator (the `Coordinator` class here) plans, delegates focused subtasks to specialists, and synthesizes their results. It is easy to debug but can become a bottleneck.
+-   **Route with a classifier, not keywords.** Use a cheap model call that picks from a fixed set of specialty labels (Structured Outputs, Chapter 11), and always handle the case where no agent is registered or none fits.
+-   **Communication needs structure.** Messages with a sender, recipient, type, content and timestamp, delivered through a bus like `MailboxSystem`, let one agent's output become another agent's input.
+-   **Choose the organization to match the problem.** Hierarchies add levels of delegation for problems at different levels of abstraction; peer-to-peer setups remove the central authority at the cost of predictability, so they need a consensus mechanism.
+-   **A simple majority vote hides dissent.** Real consensus usually adds relevance weights, vetoes for safety-critical agents, a quorum, and recorded reasons so a human can review contested decisions.
+
+## Exercises
+
+**1. Warm-up:** Replace keyword routing with a `classify_specialty(task, specialties)` function that calls `MODEL` with Structured Outputs, constraining the answer to the registered specialties plus `"none"`, and use it in `route_task`. Write 10 labelled test tasks, including "A car crashed into a traffic light and caught fire." You are done when you can print the routing accuracy of keyword matching and of the classifier on the same list, and a `"none"` result is reported instead of being silently sent to `self.agents[0]`.
+
+**2. Build:** Make the `Coordinator` plan for real in an IoT maintenance scenario. Create three workers (for example `diagnostics`, `firmware` and `field_service`) and replace the simulated `_create_plan` with a Structured Outputs call whose schema restricts `specialist` to the team's specialties. Validate every plan before delegating: reject unknown specialists, empty plans and plans with more than 5 subtasks, logging a reason for each rejection. Done means five different tasks, such as "Sensors in building 4 report intermittent dropouts since last night's firmware update", each produce either a valid plan or a clear error, never a crash.
+
+**3. Stretch:** Extend `ConsensusSystem` with a `SafetyAI` veto (its REJECT blocks a proposal on its own), a quorum of two thirds of agents, and a recorded reason for every vote. Write assertions that the chapter's preemption proposal still passes 2-1, that a safety rejection fails it even when every other agent approves, and that too few votes yields `NO_QUORUM`. Then replace the simulated `cast_vote` with model calls returning `{"vote": ..., "reason": ...}` and use `response.usage` to compare total tokens for one full vote against a single call that evaluates the proposal from all perspectives at once. You are done when the assertions pass and you can state the token ratio.
 
 # References and Further Reading
 
@@ -463,3 +474,9 @@ These principles are the foundation for building everything from a small team of
 - How to Build Multi Agent AI System (Aalpha): https://www.aalpha.net/blog/how-to-build-multi-agent-ai-system/
 - How we built our multi-agent research system (Anthropic, 2025): https://www.anthropic.com/engineering/built-multi-agent-research-system
 - Building effective agents: orchestrator-workers and other patterns (Anthropic, 2024): https://www.anthropic.com/engineering/building-effective-agents
+
+<!-- chapter-nav -->
+
+---
+
+[← Chapter 15: Building Production-Ready Agents](15-building-production-agents.md) | [Table of Contents](../README.md) | [Chapter 17: Building AI-Powered Web Applications with Python →](17-building-ai-powered-web-applications.md)
