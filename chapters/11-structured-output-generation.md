@@ -372,7 +372,7 @@ You are now equipped to build AI systems that don't just talk, but speak the pre
 - Structured outputs (Claude documentation). https://platform.claude.com/docs/en/build-with-claude/structured-outputs
 - Structured output (Gemini API documentation). https://ai.google.dev/gemini-api/docs/structured-output
 - Pydantic documentation: validators. https://docs.pydantic.dev/latest/concepts/validators/
-- 4. Structured Output (Taming LLMs). https://www.tamingllms.com/notebooks/structured_output.html
+- Let Me Speak Freely? A Study on the Impact of Format Restrictions on Performance of Large Language Models (Tam et al., 2024). https://arxiv.org/abs/2408.02442
 
 <!-- chapter-nav -->
 

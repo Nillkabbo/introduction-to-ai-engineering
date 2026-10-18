@@ -577,9 +577,7 @@ This foundation is the springboard into the wider world of agentic AI. From here
 # References and Further Reading
 
 - AI Agent Index (MIT). https://aiagentindex.mit.edu/
-- Understanding AI Agents: How They Work, Types, and Practical Applications (Medium). https://medium.com/@williamwarley/understanding-ai-agents-how-they-work-types-and-practical-applications-bd261845f7c3
-- AI Agents for Dummies: A Beginner’s Guide to Autonomous AI (Medium). https://michielh.medium.com/ai-agents-for-dummies-c1b5b5e6c4b4
-- AI Agents: Technical Overview, Architecture, and Implementation (Medium). https://sen-abby.medium.com/ai-agents-technical-overview-architecture-and-implementation-8811df690565
+- A Survey on Large Language Model based Autonomous Agents (Wang et al., 2023). https://arxiv.org/abs/2308.11432
 - How we built our multi-agent research system (Anthropic, 2025): https://www.anthropic.com/engineering/built-multi-agent-research-system
 - Building effective agents (Anthropic, 2024): https://www.anthropic.com/engineering/building-effective-agents
 - A practical guide to building agents (OpenAI, 2025): https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf

@@ -569,12 +569,10 @@ By choosing the right framework, externalizing state, establishing clear communi
 
 # References and Further Reading
 
-- Building AI Agents the Right Way: Design Principles for Agentic AI (GoPubby): https://ai.gopubby.com/building-ai-agents-the-right-way-design-principles-for-agentic-ai-47d1b92f0124
-- The Ultimate Guide to Building AI Agents in 2025 (Medium): https://medium.com/@divyanshbhatiajm19/the-ultimate-guide-to-building-ai-agents-in-2025-from-concept-to-deployment-121da166562e
+- Semantic Conventions for GenAI agent and framework spans (OpenTelemetry): https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans
 - A practical guide to building agents (OpenAI, 2025): https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf
 - Building effective agents (Anthropic, 2024): https://www.anthropic.com/engineering/building-effective-agents
 - LangChain v1 migration guide: https://docs.langchain.com/oss/python/migrate/langchain-v1
-- Building AI Agents: 14 Best Practices I Learned the Hard Way (Product Compass): https://www.productcompass.pm/p/building-ai-agents-best-practices
 - Effective context engineering for AI agents (Anthropic, 2025): https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents
 - Lost in the Middle: How Language Models Use Long Contexts (Liu et al., 2023): https://arxiv.org/abs/2307.03172
 - MemGPT: Towards LLMs as Operating Systems (Packer et al., 2023): https://arxiv.org/abs/2310.08560
