@@ -11,8 +11,8 @@ By the end of this chapter, you will be able to:
 -   Write prompts that consistently produce high-quality, structured results.
 -   Master the core prompting patterns: zero-shot, few-shot, and chain-of-thought.
 -   Use role-based prompting to get expert-level analysis for different domains.
--   Control AI behavior with `temperature` and other parameters for optimal results.
--   A/B test different prompt versions to find the most effective one.
+-   Know when explicit chain-of-thought still helps with today's reasoning models.
+-   Compare prompt versions with a small, scored evaluation instead of eyeballing outputs.
 -   Build a smart IoT device diagnostic system using advanced prompting techniques.
 
 ## From Vague to Valuable: The Anatomy of a Great Prompt
@@ -27,17 +27,15 @@ A vague prompt lacks detail and context, forcing the AI to guess what you want.
 import openai
 
 client = openai.OpenAI()
+MODEL = "gpt-6-luna"
 
 # A bad prompt: vague, unclear, and without direction.
 bad_prompt = "Tell me about our IoT device."
 
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": bad_prompt}]
-)
+response = client.responses.create(model=MODEL, input=bad_prompt)
 
 # The result will be a generic, unhelpful summary.
-print(response.choices[0].message.content)
+print(response.output_text)
 ```
 
 ### The Good Prompt
@@ -58,15 +56,17 @@ Analyze the following IoT device log and classify its status.
 3.  **Context:** A battery level below 20% is a 'Warning'. A 'Weak' signal is also a 'Warning'.
 """
 
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    response_format={"type": "json_object"},
-    messages=[{"role": "user", "content": good_prompt}]
+response = client.responses.create(
+    model=MODEL,
+    input=good_prompt,
+    text={"format": {"type": "json_object"}},   # JSON mode: the output must be valid JSON
 )
 
 # The result will be a precise, structured, and actionable JSON object.
-print(response.choices[0].message.content)
+print(response.output_text)
 ```
+
+(JSON mode guarantees valid JSON but not *which* keys you get; Chapter 11 shows how to enforce an exact schema.)
 
 ### The Five Elements of an Effective Prompt
 
@@ -77,6 +77,11 @@ Every great prompt should contain some or all of these five elements:
 3.  **Format:** The desired structure of the output (e.g., "JSON," "a bulleted list," "a three-paragraph summary").
 4.  **Examples (Few-Shot):** One or more examples of the desired input/output format. This is one of the most powerful ways to guide the AI.
 5.  **Role (Persona):** A persona for the AI to adopt (e.g., "You are an expert cybersecurity analyst," "You are a friendly customer service agent").
+
+Two structural habits make all of these work better:
+
+-   **Separate instructions from data with delimiters.** Wrap documents, logs, and user-supplied text in clear markers such as XML-style tags (`<log>…</log>`) or fenced blocks. The model can then tell what to *do* from what to *analyze*, which also makes prompt injection harder (Chapter 22).
+-   **Explain the purpose, not just the rule.** "Keep it under 50 words because it is shown on a small device screen" works better than "Be brief!!!". Modern models generalize from reasons and tend to over-apply rules written in capitals.
 
 ## Pattern 1: Zero-Shot Prompting (Just Ask)
 
@@ -89,16 +94,13 @@ def zero_shot_analysis(log_entry: str) -> str:
     prompt = f"""
 Analyze this IoT log entry and provide a one-sentence summary of the key issue.
 
-Log Entry: "{log_entry}"
-
-Summary:
+<log_entry>
+{log_entry}
+</log_entry>
 """
     
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.choices[0].message.content.strip()
+    response = client.responses.create(model=MODEL, input=prompt)
+    return response.output_text.strip()
 
 log = "2024-07-10 15:00:05 - PUMP-03 - Pressure reading of 250 PSI exceeds maximum threshold of 200 PSI."
 print(zero_shot_analysis(log))
@@ -135,27 +137,29 @@ Alert: "Multiple failed login attempts detected for GATEWAY-01."
 Category: Security
 ---
 
-Now, classify this alert:
+Now, classify this alert. Reply with only the category name.
 Alert: "{alert_text}"
 Category:
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.0 # Use low temperature for classification tasks
+    response = client.responses.create(
+        model=MODEL,
+        input=prompt,
+        reasoning={"effort": "low"},  # a simple task doesn't need deep reasoning
     )
-    return response.choices[0].message.content.strip()
+    return response.output_text.strip()
 
 print(f"Classification: {few_shot_classifier('Sensor HUMID-07 reporting negative humidity values.')}")
 print(f"Classification: {few_shot_classifier('Device LIGHT-10 lost connection to WiFi network.')}")
 ```
 
-**When to use it:** When you need a specific output format, when the task is novel, or when you need to improve the consistency and reliability of the output.
+**When to use it:** When you need a specific output format, when the task is novel, or when you need to improve the consistency and reliability of the output. Choose examples that are varied and cover the tricky cases (models copy the *pattern* of your examples closely, including accidental quirks), and validate the output in code: if the model returns something outside your category list, treat it as an error rather than passing it on.
 
 ## Pattern 3: Chain-of-Thought (CoT) Prompting
 
-LLMs often make mistakes in complex reasoning because they try to generate the answer in one step. **Chain-of-thought prompting** is a simple but powerful technique that forces the model to "think out loud" by breaking the problem down into intermediate steps. Simply adding the phrase "Let's think step by step" can dramatically improve performance on logic puzzles, math problems, and multi-step reasoning tasks.
+LLMs often make mistakes in complex reasoning when they jump straight to an answer. **Chain-of-thought prompting** asks the model to work through intermediate steps before concluding. With the non-reasoning models of 2022–2024, simply adding "Let's think step by step" measurably improved performance on logic, math, and multi-step problems.
+
+> **How this changed with reasoning models.** Today's reasoning models (GPT-6, current Claude and Gemini models) already perform an internal chain of thought before answering; you control how much with the reasoning-effort setting. For them, "think step by step" adds little, and providers advise against micromanaging the model's internal reasoning. What still helps is the part of CoT that is really **task specification**: telling the model *which* steps your process requires (as in the example below) and asking for the conclusions of each step in the visible answer so a human can check them. Explicit CoT remains useful with small, fast, or non-reasoning models.
 
 ```python
 def chain_of_thought_diagnosis(symptoms: str) -> str:
@@ -165,19 +169,15 @@ def chain_of_thought_diagnosis(symptoms: str) -> str:
 An IoT device is exhibiting the following symptoms:
 {symptoms}
 
-Let's think step by step to diagnose the root cause.
+Diagnose the root cause using these steps, and show your conclusion for each step:
 1. First, analyze each symptom individually.
 2. Then, look for connections or correlations between the symptoms.
 3. Based on the connections, formulate the most likely hypotheses for the root cause.
 4. Finally, suggest a diagnostic action to confirm the most likely hypothesis.
 """
     
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3
-    )
-    return response.choices[0].message.content
+    response = client.responses.create(model=MODEL, input=prompt, reasoning={"effort": "medium"})
+    return response.output_text
 
 symptom_list = """
 - Temperature readings are fluctuating wildly.
@@ -187,30 +187,26 @@ symptom_list = """
 
 print(chain_of_thought_diagnosis(symptom_list))
 ```
-By forcing the model to articulate its reasoning process, it's more likely to follow a logical path and arrive at a correct conclusion. It also makes the AI's reasoning transparent and easier for a human to debug.
+Spelling out the steps makes the model follow *your* diagnostic process, and asking for the conclusion of each step makes the answer easier for a human to check and debug. (A caution: a model's written explanation is not a faithful trace of how it actually reached the answer, so treat it as a useful summary, not as proof.)
 
 ## Pattern 4: Role-Based Prompting (The Persona Pattern)
 
-Instructing the AI to adopt a specific **role** or **persona** is a highly effective way to tailor its response style, tone, and content. When you tell the AI to "act as an expert cybersecurity analyst," you are priming it to access the patterns and vocabulary associated with that role from its training data.
+Instructing the AI to adopt a specific **role** or **persona** is an effective way to tailor its response's *focus, vocabulary, and tone*. Asking for "a cybersecurity analyst's view" steers the model toward threats and attack surfaces; asking for "a logistics manager's view" steers it toward schedules and costs. Be realistic about what a persona does: research has found that labels like "You are a world-class expert" do little for factual accuracy on their own. The value comes from the *perspective and priorities* the role implies, so spell those out.
 
 ```python
 def get_expert_analysis(problem_description: str, expert_role: str) -> str:
     """Gets an analysis of a problem from a specific expert's perspective."""
     
-    prompt = f"""
-You are a world-class {expert_role}.
-Analyze the following situation from your specific professional viewpoint.
+    response = client.responses.create(
+        model=MODEL,
+        instructions=f"You are a {expert_role}. Analyze situations strictly from that professional viewpoint.",
+        input=f"""
+Situation: {problem_description}
 
-Situation: A fleet of 500 IoT delivery drones is experiencing a 15% failure rate in their GPS modules.
-
-Provide your expert analysis, focusing on the key issues, risks, and recommended actions relevant to your role.
-"""
-    
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
+Provide your analysis, focusing on the key issues, risks, and recommended actions relevant to your role.
+""",
     )
-    return response.choices[0].message.content
+    return response.output_text
 
 # Get analyses from multiple different experts on the same problem
 roles_to_consult = [
@@ -220,122 +216,113 @@ roles_to_consult = [
     "Cybersecurity Analyst concerned with signal spoofing"
 ]
 
+situation = "A fleet of 500 IoT delivery drones is experiencing a 15% failure rate in their GPS modules."
 for role in roles_to_consult:
     print(f"--- Analysis from a {role} ---")
-    print(get_expert_analysis("Drone GPS failures", role))
+    print(get_expert_analysis(situation, role))
     print("\n")
 ```
 
 This technique is incredibly powerful for tackling a problem from multiple angles, revealing insights that a single, generic prompt might miss.
 
-## A/B Testing Prompts for Optimal Performance
+## Comparing Prompts with a Small Evaluation
 
-Your first prompt is rarely your best one. Production-grade AI applications require testing and iteration. A/B testing—or more accurately, A/B/C/n testing—is the process of comparing multiple prompt variants against a set of test cases to see which one performs best.
+Your first prompt is rarely your best one. Production-grade AI applications require testing and iteration, and judging a prompt by reading one or two outputs is how regressions slip through. Instead, compare prompt variants on a **set of labelled test cases** and score each output automatically. This is called an *evaluation* (or "eval"), and Chapter 24 develops it into a full testing practice.
 
 ```python
-import time
+import json
 
-class PromptTester:
-    def __init__(self):
-        self.client = openai.OpenAI()
-
-    def test_prompt_variants(self, test_input: str, prompt_variants: list[str]) -> dict:
-        """Tests multiple prompt variants for a single input."""
-        results = {}
-        for i, prompt_template in enumerate(prompt_variants):
-            variant_name = f"Variant-{i+1}"
-            
-            # Fill the template with the test input
-            full_prompt = prompt_template.format(input=test_input)
-            
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": full_prompt}]
-            ).choices[0].message.content
-            
-            results[variant_name] = response
-            time.sleep(1) # Simple rate limiting for the test
-        return results
-
-# Let's test different ways to ask for a JSON summary of an alert.
-alert_text = "Device PUMP-01 reports pressure at 300 PSI. The safe limit is 250 PSI."
-
-variants = [
-    # Variant 1: Simple and direct
-    "Summarize this alert in JSON: {input}",
-    
-    # Variant 2: More specific about keys
-    "Extract the device_id, metric, value, and limit from this alert into a JSON object: {input}",
-    
-    # Variant 3: Few-shot example
-    """
-Convert the alert into a structured JSON object.
-Example: 'Device TEMP-01 at 50C' -> {{"device_id": "TEMP-01", "metric": "temperature", "value": 50}}
-Alert to convert: {input}
-"""
+# Each case: an input and the fields we expect the model to extract.
+test_cases = [
+    {"input": "Device PUMP-01 reports pressure at 300 PSI. The safe limit is 250 PSI.",
+     "expected": {"device_id": "PUMP-01", "metric": "pressure", "value": 300}},
+    {"input": "TEMP-07 at 92C, threshold 90C.",
+     "expected": {"device_id": "TEMP-07", "metric": "temperature", "value": 92}},
+    {"input": "Humidity sensor HUM-3 reading 18%; minimum allowed 20%.",
+     "expected": {"device_id": "HUM-3", "metric": "humidity", "value": 18}},
 ]
 
-tester = PromptTester()
-test_results = tester.test_prompt_variants(alert_text, variants)
+variants = {
+    "v1_minimal": "Summarize this alert in JSON: {input}",
+    "v2_keys": "Extract device_id, metric (lowercase), and value (a number) from this alert. "
+               "Respond with a JSON object with exactly those keys.\n\n<alert>{input}</alert>",
+}
 
-for variant, result in test_results.items():
-    print(f"--- {variant} ---")
-    print(result)
+def score(output: str, expected: dict) -> bool:
+    """A case passes only if the JSON parses and every expected field matches."""
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError:
+        return False
+    return all(data.get(key) == value for key, value in expected.items())
+
+for name, template in variants.items():
+    passed = 0
+    for case in test_cases:
+        output = client.responses.create(
+            model=MODEL,
+            input=template.format(input=case["input"]),
+            text={"format": {"type": "json_object"}},
+        ).output_text
+        passed += score(output, case["expected"])
+    print(f"{name}: {passed}/{len(test_cases)} cases passed")
 ```
-By running several test cases through this framework, you can quantitatively and qualitatively determine which prompt structure yields the most reliable results for your application.
+
+The minimal variant usually produces valid JSON with unpredictable key names, so it fails the checks; the explicit variant passes. Three cases are only a start: a useful eval set has dozens to hundreds of cases, drawn from real inputs and including the hard edge cases. Because model outputs vary between runs, compare variants on the *pass rate over the whole set*, not on any single output.
 
 ## Putting It All Together: A Smart IoT Diagnostic System
 
 Let's build a complete diagnostic system that uses all the patterns we've learned to provide a comprehensive analysis of an IoT device alert.
 
 ```python
-from typing import Dict
+import json
+from datetime import datetime
+
+CATEGORIES = ["Power", "Connectivity", "Sensor_Failure", "Software_Bug"]
 
 class IoTDiagnosticSystem:
     def __init__(self):
         self.client = openai.OpenAI()
 
-    def generate_report(self, alert_log: str, device_context: Dict) -> Dict:
+    def _ask(self, prompt: str, instructions: str | None = None, effort: str = "medium") -> str:
+        response = self.client.responses.create(
+            model=MODEL, instructions=instructions, input=prompt, reasoning={"effort": effort}
+        )
+        return response.output_text.strip()
+
+    def generate_report(self, alert_log: str, device_context: dict) -> dict:
         """Generates a complete diagnostic report for an IoT alert."""
         
-        # 1. Classify the alert using a Few-Shot Prompt
+        # 1. Classify the alert using a few-shot prompt, then validate the label in code.
         classification_prompt = f"""
-Classify this alert log into one of [Power, Connectivity, Sensor_Failure, Software_Bug].
+Classify this alert log into one of {CATEGORIES}. Reply with only the category.
 Example 1: "Battery at 3%" -> Power
 Example 2: "Failed to connect to WiFi" -> Connectivity
 Log: "{alert_log}"
 Category:
 """
-        category = self.client.chat.completions.create(
-            model="gpt-4o-mini", temperature=0,
-            messages=[{"role": "user", "content": classification_prompt}]
-        ).choices[0].message.content
+        category = self._ask(classification_prompt, effort="low")
+        if category not in CATEGORIES:
+            category = "Unclassified"
 
-        # 2. Get a detailed diagnosis using Chain-of-Thought
+        # 2. Get a detailed diagnosis by specifying the reasoning steps.
         diagnosis_prompt = f"""
 An IoT device reported the following alert: "{alert_log}".
-Device context: {device_context}
+Device context: {json.dumps(device_context)}
 
-Let's diagnose this step by step:
+Diagnose it in three steps, giving your conclusion for each:
 1.  What is the immediate problem indicated by the alert?
 2.  Considering the device context, what are the 2-3 most likely root causes?
 3.  What is the recommended first action to take to verify the cause?
 """
-        diagnosis = self.client.chat.completions.create(
-            model="gpt-4o-mini", temperature=0.3,
-            messages=[{"role": "user", "content": diagnosis_prompt}]
-        ).choices[0].message.content
+        diagnosis = self._ask(diagnosis_prompt)
 
-        # 3. Get a specialized opinion using Role-Based Prompting
-        security_prompt = f"""
-You are a cybersecurity expert. Analyze this IoT alert for potential security implications:
-Alert: "{alert_log}"
-Context: {device_context}
-"""
-        security_analysis = self.client.chat.completions.create(
-            model="gpt-4o-mini", temperature=0.2,
-            messages=[{"role": "user", "content": security_prompt}]
-        ).choices[0].message.content
+        # 3. Get a specialized perspective using role-based prompting.
+        security_analysis = self._ask(
+            f'Alert: "{alert_log}"\nContext: {json.dumps(device_context)}',
+            instructions="You are a cybersecurity analyst. Assess IoT alerts only for security implications "
+                         "(compromise, spoofing, denial of service) and say plainly if there are none.",
+        )
 
         # 4. Assemble the final report
         report = {
@@ -369,7 +356,7 @@ This final example demonstrates how these fundamental prompting patterns are not
 
 Prompt engineering is the new essential skill for developers in the age of AI. It is a craft that blends clear instructions, contextual awareness, and structured thinking. By mastering the patterns in this chapter—zero-shot, few-shot, chain-of-thought, and role-based prompting—you have gained the ability to command AI models with precision and predictability.
 
-Remember the core principle: **garbage in, garbage out.** A vague prompt will always yield a vague response. A specific, well-structured, and context-rich prompt is the key to unlocking the full potential of any LLM. Always test, iterate, and refine your prompts as you would any other piece of code. You are now equipped to build more reliable, accurate, and powerful AI features.
+Remember the core principle: **garbage in, garbage out.** A vague prompt yields a vague response. A specific, well-structured, context-rich prompt is the key to getting the most out of any LLM. Treat prompts like code: version them, test them against a set of cases, and measure before you change them. You are now equipped to build more reliable, accurate, and powerful AI features.
 
 # References and Further Reading
 
@@ -377,3 +364,6 @@ Remember the core principle: **garbage in, garbage out.** A vague prompt will al
 - Advanced Prompt Engineering for Content Creators – Full Handbook (freeCodeCamp). https://www.freecodecamp.org/news/advanced-prompt-engineering-handbook
 - Best practices for LLM prompt engineering (Palantir Docs). https://www.palantir.com/docs/foundry/aip/best-practices-prompt-engineering
 - Mastering Prompt Engineering for Large Language Models (Medium). https://medium.com/@nasdag/mastering-prompt-engineering-for-large-language-models-1afafb52c44b
+- Chain-of-Thought Prompting Elicits Reasoning in Large Language Models (Wei et al., 2022). https://arxiv.org/abs/2201.11903
+- Prompt engineering overview (Claude documentation). https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/overview
+- Prompt engineering guide (OpenAI documentation). https://platform.openai.com/docs/guides/prompt-engineering

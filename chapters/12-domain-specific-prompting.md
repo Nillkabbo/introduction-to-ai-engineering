@@ -24,18 +24,18 @@ The core idea behind domain-specific prompting is to provide the AI with the ric
 A generic prompt asks a general question and receives a general answer.
 
 ```python
+import json
 import openai
 
 client = openai.OpenAI()
+MODEL = "gpt-6-luna"
+
+def ask(prompt: str, instructions: str | None = None) -> str:
+    return client.responses.create(model=MODEL, instructions=instructions, input=prompt).output_text
 
 def generic_analysis(data: str) -> str:
     """A generic prompt that lacks specific domain context."""
-    prompt = f"Analyze this data and provide insights: {data}"
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.choices[0].message.content
+    return ask(f"Analyze this data and provide insights: {data}")
 ```
 
 ### A Domain-Specific Analysis
@@ -54,10 +54,11 @@ def domain_specific_analysis(data: str, domain: str) -> str:
     persona = domain_personas.get(domain, "You are a technical expert.")
     
     prompt = f"""
-As {persona}, analyze the following operational data.
+Analyze the following operational data.
 
-Data:
+<data>
 {data}
+</data>
 
 Provide your analysis, focusing specifically on:
 - Industry-specific Key Performance Indicators (KPIs).
@@ -65,12 +66,8 @@ Provide your analysis, focusing specifically on:
 - Opportunities for operational efficiency improvements relevant to the {domain} sector.
 - Actionable insights tailored to a {domain} context.
 """
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2
-    )
-    return response.choices[0].message.content
+    # The persona goes in the instructions (system prompt); the task and data go in the input.
+    return ask(prompt, instructions=persona)
 ```
 
 Let's compare the outputs using some sample factory data.
@@ -92,7 +89,11 @@ print(domain_specific_analysis(factory_data, "manufacturing"))
 
 **Analysis Results:**
 
-The generic analysis will correctly note that output is below target and the defect rate is high. The manufacturing-specific analysis, however, will likely discuss concepts like Overall Equipment Effectiveness (OEE), suggest potential causes for the reduced throughput related to motor temperature, and frame the defect rate in terms of Six Sigma or other quality control methodologies. It speaks the language of the domain.
+The generic analysis will correctly note that output is below target and the defect rate is high. The manufacturing-specific analysis will more likely discuss concepts like Overall Equipment Effectiveness (OEE), connect the reduced throughput to the motor running close to its limit, and frame the defect rate in quality-control terms. It speaks the language of the domain.
+
+The persona is only part of the effect, though. Most of the improvement comes from the explicit list of what to focus on, which is domain knowledge *you* supplied. The more of your organization's real context you provide (targets, thresholds, past incidents, procedures), the more expert the answer becomes. Taken to its conclusion, that idea becomes retrieval-augmented generation (Chapter 27).
+
+> **High-stakes domains.** In regulated fields such as healthcare, finance, and safety engineering, a domain persona makes the output *sound* authoritative, but it doesn't make it correct or compliant. Keep a qualified human in the loop, ground answers in approved sources, and say clearly in your product that the output is AI-generated.
 
 ## Domain 1: Generating Technical Documentation
 
@@ -103,11 +104,6 @@ AI is a powerful tool for generating documentation, but to create truly useful d
 Let's generate developer-focused documentation for an IoT API.
 
 ```python
-import json
-import openai
-
-client = openai.OpenAI()
-
 def generate_api_documentation(api_spec: dict) -> str:
     """Generates comprehensive API documentation from a specification."""
     
@@ -125,14 +121,9 @@ Generate a complete API reference document in Markdown format for the following 
 1. **Overview:** Explain the API's purpose, base URL, version, and authentication method.
 2. **Endpoints:** For each endpoint, detail the HTTP method, path, description, parameters, request body (if any), and example responses for both success (200 OK) and common errors (e.g., 404 Not Found, 401 Unauthorized).
 3. **Code Examples:** Provide practical code examples for each endpoint in Python (using the `requests` library) and a `cURL` command.
+4. **Accuracy:** Document only what the specification states. Where details are missing (request bodies, response fields, error codes), insert a clearly marked `TODO:` instead of inventing them.
 """
-    
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1
-    )
-    return response.choices[0].message.content
+    return ask(prompt)
 
 # Define a simple specification for our IoT API
 iot_api_specification = {
@@ -159,7 +150,7 @@ print("--- Generated API Documentation ---")
 print(api_docs)
 ```
 
-By providing the full specification and clear instructions on the required sections, we get a complete and professional document, not just a simple description.
+By providing the specification and clear instructions on the required sections, we get a well-structured document, not just a simple description. Note the accuracy requirement: this spec says nothing about response fields or error formats, and without that instruction a model will happily invent plausible ones. For real APIs, generate documentation from a complete machine-readable spec (such as an OpenAPI file) and have an engineer review it.
 
 ## Domain 2: Code Generation and Review
 
@@ -182,23 +173,24 @@ def generate_iot_code(requirements: dict) -> str:
         "Include methods for clean connection teardown."
     ]
     
+    patterns = "\n".join(f"- {p}" for p in iot_patterns)
     prompt = f"""
-You are an expert embedded systems developer specializing in IoT communication protocols.
-Generate a production-ready Python class for an MQTT client based on these requirements.
+Generate a Python class for an MQTT client based on these requirements.
 
 **Requirements:**
 {json.dumps(requirements, indent=2)}
 
 **Mandatory Implementation Patterns:**
-- {chr(10).join(f"- {p}" for p in iot_patterns)}
+{patterns}
+
+Use the `aiomqtt` library and connect over TLS (port 8883). Read credentials from environment variables.
 """
-    
-    response = client.chat.completions.create(
-        model="gpt-4o", # Use a more powerful model for better code
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1
+    response = client.responses.create(
+        model="gpt-6-sol",   # a stronger model is worth it for code
+        instructions="You are an expert embedded systems developer specializing in IoT communication protocols.",
+        input=prompt,
     )
-    return response.choices[0].message.content
+    return response.output_text
 
 mqtt_client_requirements = {
     "purpose": "Collects sensor data from topics and forwards it to a cloud API.",
@@ -230,27 +222,22 @@ def review_iot_code(code_snippet: str) -> str:
         "Scalability to handle hundreds or thousands of devices."
     ]
     
+    criteria = "\n".join(f"- {c}" for c in iot_review_criteria)
     prompt = f"""
-You are a senior IoT architect performing a code review.
 Analyze the following Python code for an IoT application.
 
-**Code to Review:**
+<code>
 {code_snippet}
-
+</code>
 
 **Review Focus:**
 Evaluate the code against these IoT-specific best practices:
-- {chr(10).join(f"- {c}" for c in iot_review_criteria)}
+{criteria}
 
 Provide your review in a structured format with sections for 'Strengths', 'Critical Issues', and 'Suggestions for Improvement'.
+For each critical issue, quote the relevant line.
 """
-    
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2
-    )
-    return response.choices[0].message.content
+    return ask(prompt, instructions="You are a senior IoT architect performing a code review.")
 
 # A simple (and flawed) code snippet to be reviewed
 sample_code = """
@@ -281,32 +268,49 @@ When analyzing data, providing domain context transforms the AI from a simple da
 
 ### Industrial Manufacturing Analytics
 
-Let's analyze production data from the perspective of a quality control engineer.
+Let's analyze production data from the perspective of a quality control engineer. Following the lesson of Chapter 4, we **compute the metrics in code** and ask the model to interpret them, rather than asking it to do the arithmetic.
 
+OEE (Overall Equipment Effectiveness) is the product of three ratios:
+
+-   **Availability** = run time ÷ planned production time
+-   **Performance** = (ideal cycle time × total units) ÷ run time
+-   **Quality** = good units ÷ total units
 
 ```python
+def compute_oee(data: dict) -> dict:
+    """Standard OEE calculation. Deterministic, testable, and exact."""
+    planned_minutes = data["shift_duration_hours"] * 60 - data["planned_downtime_minutes"]
+    run_minutes = planned_minutes - data["unplanned_downtime_minutes"]
+    availability = run_minutes / planned_minutes
+    performance = (data["ideal_cycle_time_seconds"] * data["total_units_produced"]) / (run_minutes * 60)
+    quality = (data["total_units_produced"] - data["defective_units"]) / data["total_units_produced"]
+    return {
+        "availability": round(availability, 3),
+        "performance": round(performance, 3),
+        "quality": round(quality, 3),
+        "oee": round(availability * performance * quality, 3),
+    }
+
 def analyze_manufacturing_data(data: dict) -> str:
-    """Analyzes production data with a manufacturing expert persona."""
-    
+    """Interprets precomputed production metrics with a quality-engineering persona."""
+    metrics = compute_oee(data)
     prompt = f"""
-You are a Quality Control Engineer in a manufacturing plant. Analyze the following production report.
+Analyze this shift's production report. The OEE figures were computed exactly; do not recalculate them.
 
-**Production Data:**
+<raw_data>
 {json.dumps(data, indent=2)}
+</raw_data>
+<computed_metrics>
+{json.dumps(metrics, indent=2)}
+</computed_metrics>
 
-Provide your analysis focusing on:
-- **Overall Equipment Effectiveness (OEE):** Calculate or estimate the OEE score.
-- **Root Cause Analysis:** What is the most likely cause of the increased defect rate?
-- **Actionable Insights:** What specific, practical steps should be taken to improve quality and throughput?
-- **Process Control:** Are the processes in a state of statistical control?
+Provide:
+- **OEE interpretation:** Which of availability, performance, and quality is the main loss, compared with a typical world-class benchmark of about 85% OEE?
+- **Likely causes:** Plausible causes of the main loss, labelled as hypotheses.
+- **Actionable steps:** Specific, practical steps to improve quality and throughput.
+- **Data needed:** What additional data (for example, defect counts over many shifts) would be needed to judge whether the process is in statistical control. Do not draw that conclusion from a single shift.
 """
-    
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3
-    )
-    return response.choices[0].message.content
+    return ask(prompt, instructions="You are a Quality Control Engineer in a manufacturing plant.")
 
 production_data = {
     "shift_duration_hours": 8,
@@ -314,15 +318,16 @@ production_data = {
     "unplanned_downtime_minutes": 45,
     "ideal_cycle_time_seconds": 60,
     "total_units_produced": 400,
-    "defective_units": 20
+    "defective_units": 20,
 }
 
-manufacturing_analysis = analyze_manufacturing_data(production_data)
+print(compute_oee(production_data))
+# {'availability': 0.9, 'performance': 0.988, 'quality': 0.95, 'oee': 0.844}
 print("--- Manufacturing Data Analysis ---")
-print(manufacturing_analysis)
+print(analyze_manufacturing_data(production_data))
 ```
 
-By framing the request this way, the AI will use domain-specific concepts like OEE and provide recommendations that are relevant to a factory floor manager, rather than just stating that the numbers are low.
+The OEE for this shift is 84.4% (90% availability × 98.8% performance × 95% quality), and the model's job is to explain what that means and what to do about it, which is the part that benefits from domain knowledge. Notice also the last bullet: whether a process is "in statistical control" can only be judged from many samples over time, and asking a model to decide it from one shift summary would invite a confident fabrication.
 
 ## A Practical Project: Domain-Specific IoT Troubleshooting
 
@@ -372,12 +377,7 @@ Create a systematic, step-by-step troubleshooting guide. Structure it with the f
 6. **Escalation Path:** When to stop and call for a specialist engineer.
 """
         
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2
-        )
-        return response.choices[0].message.content
+        return self.client.responses.create(model=MODEL, input=prompt).output_text
 
 # --- Demo of the troubleshooting system ---
 troubleshooter = IoTTroubleshootingSystem()
@@ -395,8 +395,9 @@ This final example shows how embedding a structured knowledge base directly into
 Domain-specific prompting elevates you from a user of AI to an architect of AI-powered expertise. By embedding the context, vocabulary, and workflows of a specific field into your prompts, you can create applications that deliver specialized and significant value.
 
 Remember these key best practices:
-- **Give the AI a Persona:** Start your prompt by telling the AI who it is ("You are a...").
-- **Provide Domain Context:** Include industry-specific rules, constraints, and knowledge.
+- **Give the AI a Persona:** Put the role in the system prompt, and spell out the priorities that role implies.
+- **Provide Domain Context:** Include industry-specific rules, constraints, and knowledge; this matters more than the persona.
+- **Compute, Then Interpret:** Calculate domain metrics in code and let the model explain them.
 - **Use Domain Terminology:** Speak the language of the expert you want the AI to emulate.
 - **Structure for the Domain:** Ask for outputs that match the formats used in that field (e.g., API docs, engineering reports, financial analyses).
 

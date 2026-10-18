@@ -1,298 +1,272 @@
 # Chapter 11: Mastering Structured Output
 
-In software development, data is only useful if it's predictable. A web application expects a JSON object, a database expects a SQL query, and a configuration file expects a specific format like XML or YAML. While large language models are masters of generating creative, unstructured text, this flexibility becomes a liability when your application needs to programmatically process the AI's response.
+In software development, data is only useful if it's predictable. A web application expects a JSON object, a database expects typed fields, and a configuration system expects a specific format. Large language models generate free-form text, and that flexibility becomes a liability when your code needs to process the response.
 
-This chapter is dedicated to the critical skill of forcing an AI's creative output into a rigid, reliable, and machine-readable structure. We will explore techniques that move beyond simple text generation to produce consistent JSON, XML, and even entire codebases that adhere to strict formatting and validation rules. Mastering structured output is the key to integrating AI as a reliable component in any automated system.
+This chapter is about turning model output into reliable, machine-readable structure. We will go from "please answer in JSON" to schema-enforced **Structured Outputs**, validate the results with Pydantic, and apply the same discipline to generating code and configuration.
 
 ### Learning Objectives
 
 By the end of this chapter, you will be able to:
 
--   Consistently generate valid JSON, XML, and other structured data formats from AI models.
--   Integrate Pydantic models with your AI calls for automatic type safety and data validation.
--   Design prompts and error-handling loops that gracefully recover from malformed AI outputs.
--   Generate production-quality code that adheres to specific constraints and architectural patterns.
--   Build a complete, validated IoT device configuration generator from scratch.
+-   Explain the difference between prompting for JSON, JSON mode, and schema-enforced Structured Outputs.
+-   Use Structured Outputs with OpenAI, Anthropic, and Google, driven by Pydantic models.
+-   Validate business rules that a schema can't express, and recover from failures.
+-   Generate code under clear constraints, and know when templating should be deterministic instead.
+-   Build a validated IoT device configuration generator.
 
 ## The Problem: The Unpredictability of Unstructured Text
 
-Let's start by highlighting the problem we're trying to solve. Imagine asking an AI to analyze a sensor reading.
-
 ```python
+import json
 import openai
 
 client = openai.OpenAI()
-
-def unstructured_analysis(sensor_data: str) -> str:
-    """A standard prompt that results in unstructured, hard-to-parse text."""
-    prompt = f"Analyze this IoT sensor data and tell me what's wrong and what to do: {sensor_data}"
-    
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.choices[0].message.content
+MODEL = "gpt-6-luna"
 
 sensor_reading = "device: TEMP-042, temp: 85°C, battery: 15%, signal: -92dBm"
-analysis = unstructured_analysis(sensor_reading)
-print("--- Unstructured Output ---")
-print(analysis)
+
+response = client.responses.create(
+    model=MODEL,
+    input=f"Analyze this IoT sensor data and tell me what's wrong and what to do: {sensor_reading}",
+)
+print(response.output_text)
 ```
-The response might be helpful for a human, but for a program, it's a nightmare. How would your code reliably extract the severity, the specific issues, and the recommended actions? You would have to write complex and brittle parsing logic using regular expressions. If the AI changes its wording slightly, your code breaks.
 
-## The Solution: Prompting for Structure
+The response may be helpful for a human, but for a program it's a nightmare. How would your code reliably extract the severity, the issues, and the recommended action? Regular expressions over prose break the moment the wording changes.
 
-The solution is to make the desired structure part of the prompt itself. We can explicitly instruct the AI to respond in a machine-readable format like JSON.
+## Level 1: Prompting for Structure
+
+The first step is to describe the structure you want in the prompt:
 
 ```python
-import json
-
 def structured_analysis(sensor_data: str) -> dict:
-    """A prompt engineered to produce a specific JSON structure."""
-    
     prompt = f"""
 Analyze the following IoT sensor data.
-Data: "{sensor_data}"
+<data>{sensor_data}</data>
 
-Respond with a JSON object that follows this exact structure:
+Respond with only a JSON object with this structure:
 {{
   "device_id": string,
-  "health_status": "one of [Healthy, Warning, Critical]",
-  "issues": [
-    {{
-      "component": "one of [Temperature, Battery, Connectivity]",
-      "description": "A brief explanation of the issue."
-    }}
-  ],
-  "recommended_action": "The single most important next step."
+  "health_status": "Healthy" | "Warning" | "Critical",
+  "issues": [{{"component": "Temperature" | "Battery" | "Connectivity", "description": string}}],
+  "recommended_action": string
 }}
 """
-    
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    
+    text = client.responses.create(model=MODEL, input=prompt).output_text
     try:
-        # The AI's response should be a string containing valid JSON
-        return json.loads(response.choices[0].message.content)
+        return json.loads(text)
     except json.JSONDecodeError:
-        return {"error": "Failed to parse AI response as JSON."}
+        return {"error": "Failed to parse AI response as JSON.", "raw": text}
 
-structured_result = structured_analysis(sensor_reading)
-print("\n--- Structured Output ---")
-print(json.dumps(structured_result, indent=2))
-
-# Now, your application can reliably access the data.
-if structured_result.get("health_status") == "Critical":
-    print("\nAction required:", structured_result.get("recommended_action"))
+print(json.dumps(structured_analysis(sensor_reading), indent=2))
 ```
-This is a huge improvement, but it's not foolproof. The model might still occasionally produce malformed JSON.
 
-## Pattern 1: Guaranteed JSON with JSON Mode
+This usually works, but "usually" is the problem. The model may wrap the JSON in a code fence, add a friendly sentence before it, misspell a key, or invent a fourth status.
 
-To solve the problem of malformed JSON, modern models from OpenAI, Anthropic, and Google support a special **JSON Mode**. When enabled, the model is constrained to *only* output text that is a syntactically valid JSON object. This eliminates parsing errors entirely.
+## Level 2: JSON Mode
 
-In the OpenAI API, you enable this by setting `response_format={"type": "json_object"}`.
+**JSON mode** constrains the model to produce syntactically valid JSON. In the Responses API you enable it with `text={"format": {"type": "json_object"}}` (Chat Completions uses `response_format={"type": "json_object"}`). The prompt must still mention JSON and describe the fields.
 
 ```python
-def guaranteed_json_analysis(device_data: str) -> dict:
-    """Uses JSON Mode to guarantee a valid JSON response."""
-    
-    prompt = "Analyze this IoT data and respond with JSON containing keys: 'device_id', 'status', 'issues', and 'recommendation'."
-    
-    full_prompt = f"{prompt}\n\nData: {device_data}"
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": full_prompt}],
-        # This is the key to enabling JSON Mode
-        response_format={"type": "json_object"},
-        temperature=0.1 # Lower temperature for more predictable structure
-    )
-    
-    # No need for a try...except block for JSON parsing!
-    return json.loads(response.choices[0].message.content)
-
-json_output = guaranteed_json_analysis(sensor_reading)
-print("--- Guaranteed JSON Output ---")
-print(json.dumps(json_output, indent=2))
+response = client.responses.create(
+    model=MODEL,
+    input=f"Analyze this IoT data and respond in JSON with keys device_id, status, issues, recommendation.\n\nData: {sensor_reading}",
+    text={"format": {"type": "json_object"}},
+)
+data = json.loads(response.output_text)
 ```
-Using JSON Mode is a best practice for any application that needs to programmatically consume AI output.
 
-## Pattern 2: Pydantic for Bulletproof Validation
+JSON mode removes *syntax* errors, but it says nothing about the *schema*: keys can still be missing, misnamed, or of the wrong type. One failure mode remains even for syntax: if the output hits the token limit, the JSON is cut off, so check that the response completed (`response.status == "completed"`).
 
-While JSON Mode guarantees a valid *syntax*, it doesn't guarantee the correct *schema*. The AI might return a string where you expect a number, or omit a required field. This is where **Pydantic** comes in. Pydantic is a Python library for data validation that works seamlessly with modern IDEs and static analysis tools.
+## Level 3: Structured Outputs (Schema-Enforced)
 
-First, define your desired data structure as a Pydantic `BaseModel`. This class serves as both your schema definition and your validator.
+**Structured Outputs** go further: you give the API a JSON Schema, and generation is *constrained* so that the output always matches it, with every required key present, every enum value valid, and every type correct. All three major providers support this, and their SDKs accept a **Pydantic model** directly, so one Python class serves as your schema, your parser, and your type.
 
 ```python
+from typing import Literal
 from pydantic import BaseModel, Field
-from typing import List, Literal
 
 class DeviceIssue(BaseModel):
     component: Literal["Temperature", "Battery", "Connectivity"]
-    description: str = Field(..., min_length=10) # `...` means the field is required
+    description: str
 
 class DeviceAnalysis(BaseModel):
     device_id: str
     health_status: Literal["Healthy", "Warning", "Critical"]
-    issues: List[DeviceIssue]
-    health_score: int = Field(..., ge=0, le=100) # Must be an integer between 0 and 100
+    issues: list[DeviceIssue]
+    health_score: int = Field(ge=0, le=100, description="0 = failed, 100 = perfect")
+    recommended_action: str
 ```
-Now, we can integrate this into our AI call. We first generate the JSON schema from our Pydantic model to include in the prompt, then we use the model to parse and validate the AI's response.
+
+### OpenAI
 
 ```python
-def pydantic_validated_analysis(sensor_data: str) -> DeviceAnalysis:
-    """Generates and validates a response using a Pydantic model."""
-    
-    # Pydantic can generate a JSON schema from your model
-    json_schema = DeviceAnalysis.model_json_schema()
-    
-    prompt = f"""
-Analyze the provided IoT data. You MUST respond with a JSON object
-that strictly follows this JSON Schema:
-{json.dumps(json_schema, indent=2)}
+def analyze_openai(sensor_data: str) -> DeviceAnalysis:
+    response = client.responses.parse(
+        model=MODEL,
+        instructions="You are an IoT diagnostics assistant.",
+        input=f"Analyze this sensor reading: {sensor_data}",
+        text_format=DeviceAnalysis,
+    )
+    return response.output_parsed       # already a validated DeviceAnalysis instance
 
-Data to analyze: "{sensor_data}"
-"""
-    
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        response_format={"type": "json_object"}
-    ).choices[0].message.content
-    
-    try:
-        # Pydantic will parse the JSON and validate it against your model.
-        # If validation fails, it raises a ValidationError.
-        validated_data = DeviceAnalysis.model_validate_json(response)
-        return validated_data
-    except Exception as e:
-        print(f"Pydantic validation failed: {e}")
-        print(f"Raw AI response was: {response}")
-        # In a real app, you could implement a retry loop here to ask the AI to fix its own output.
-        return None
-
-validated_output = pydantic_validated_analysis(sensor_reading)
-if validated_output:
-    print("\n--- Pydantic-Validated Output ---")
-    # .model_dump_json() gives a nicely formatted JSON string
-    print(validated_output.model_dump_json(indent=2))
-    
-    # You can now access data with type safety and autocompletion
-    print(f"\nHealth Score: {validated_output.health_score}")
+analysis = analyze_openai(sensor_reading)
+print(analysis.health_status, analysis.health_score)
+for issue in analysis.issues:
+    print("-", issue.component, ":", issue.description)
 ```
-This combination of JSON Mode and Pydantic validation is the gold standard for production-grade structured output. It ensures that the data your application receives is not only syntactically correct but also semantically valid according to your business logic.
 
-## Pattern 3: Constrained Code Generation
+### Anthropic (Claude)
 
-Generating structured data is one thing; generating functional, correct, and secure code is another. When asking an AI to write code, you must provide strong constraints and patterns.
+```python
+import anthropic
 
-### Generating a Device Driver
+claude = anthropic.Anthropic()
 
-Let's ask the AI to generate a Python class for a specific type of IoT device, but with strict requirements.
+def analyze_claude(sensor_data: str) -> DeviceAnalysis:
+    response = claude.messages.parse(
+        model="claude-opus-5-5",
+        max_tokens=16000,
+        messages=[{"role": "user", "content": f"Analyze this sensor reading: {sensor_data}"}],
+        output_format=DeviceAnalysis,
+    )
+    return response.parsed_output
+```
+
+### Google (Gemini)
+
+```python
+from google import genai
+from google.genai import types
+
+gemini = genai.Client()
+
+def analyze_gemini(sensor_data: str) -> DeviceAnalysis:
+    response = gemini.models.generate_content(
+        model="gemini-3.8-flash",
+        contents=f"Analyze this sensor reading: {sensor_data}",
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=DeviceAnalysis,
+        ),
+    )
+    return response.parsed
+```
+
+Structured Outputs is the right default whenever your code consumes model output. A few things to know:
+
+-   **Schema features are limited.** Providers support a large subset of JSON Schema, not all of it. Keep schemas simple: objects, arrays, enums (`Literal`), strings, numbers, booleans, and optional fields. Very long enums or deeply recursive schemas may be rejected; the SDK error tells you which keyword is unsupported.
+-   **Schemas are guidance for content, too.** Field names and `description`s are part of the prompt; a field called `recommended_action` with a good description gets better content than one called `x`.
+-   **A valid shape is not a correct answer.** The model can still put a wrong value in a well-formed field. Structure guarantees parseability, not truth.
+-   **Refusals and truncation still exist.** If the model refuses or runs out of tokens, the parsed result can be missing; check for it rather than assuming success.
+
+## Pydantic for Business Rules
+
+Structured Outputs guarantees the shape. Your application usually has additional rules that a JSON Schema can't express, and Pydantic validators are the natural place for them:
+
+```python
+from pydantic import ValidationError, model_validator
+
+class ValidatedAnalysis(DeviceAnalysis):
+    @model_validator(mode="after")
+    def status_matches_score(self):
+        if self.health_status == "Critical" and self.health_score > 40:
+            raise ValueError("A Critical device cannot have a health score above 40")
+        if self.health_status == "Healthy" and self.issues:
+            raise ValueError("A Healthy device should not list issues")
+        return self
+
+def analyze_with_rules(sensor_data: str, max_attempts: int = 2) -> ValidatedAnalysis:
+    feedback = ""
+    for _ in range(max_attempts):
+        raw = analyze_openai(sensor_data + feedback)
+        try:
+            return ValidatedAnalysis.model_validate(raw.model_dump())
+        except ValidationError as e:
+            # Feed the specific rule violation back so the next attempt can fix it.
+            feedback = f"\n\nYour previous answer violated these rules: {e.errors()[0]['msg']}. Fix this."
+    raise RuntimeError("Could not produce an analysis that satisfies the business rules")
+```
+
+This two-layer design is the production standard: **schema enforcement** for structure, **code-level validation** for meaning, and a **bounded retry** that tells the model exactly what was wrong.
+
+## Pattern: Constrained Code Generation
+
+Generating structured data is one thing; generating functional, correct, and secure code is another. When asking a model to write code, give it explicit requirements and the context it can't guess.
 
 ```python
 def generate_device_driver(device_spec: dict) -> str:
     """Generates a Python device driver class based on a specification."""
-    
     prompt = f"""
-Generate a complete, production-ready Python class for an IoT device based on the following specification.
+Generate a complete Python class for an IoT device based on this specification.
 
-**Specification:**
+<specification>
 {json.dumps(device_spec, indent=2)}
+</specification>
 
-**Mandatory Requirements:**
-1.  The class must be named `ModbusTempSensor`.
-2.  It must include full type hints for all method arguments and return values.
-3.  It must include comprehensive docstrings for the class and all public methods.
-4.  It must include `try...except` blocks for all I/O operations to handle potential errors gracefully.
-5.  It must use the `logging` module to log informational messages and errors.
-6.  The code must be PEP 8 compliant.
+Requirements:
+1.  Name the class `ModbusTempSensor` and use the `pymodbus` library (version 3.x).
+2.  Full type hints and docstrings for the class and all public methods.
+3.  Handle I/O errors (timeouts, CRC errors) explicitly; never swallow exceptions silently.
+4.  Use the `logging` module, not print().
+5.  Follow PEP 8.
+Return only the code.
 """
-    
-    response = client.chat.completions.create(
-        model="gpt-4o", # Use a more powerful model for better code generation
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1
-    )
-    return response.choices[0].message.content
+    return client.responses.create(
+        model="gpt-6-sol",                 # a stronger model is worth it for code
+        input=prompt,
+        reasoning={"effort": "high"},
+    ).output_text
 
-# Define the specification for our desired device driver
 sensor_spec = {
     "device_type": "Modbus Temperature Sensor",
     "protocol": "Modbus RTU",
-    "connection": "Serial (RS-485)",
+    "connection": "Serial (RS-485), 9600 baud, 8N1",
     "registers": {
         "temperature": {"address": 4001, "type": "int16", "scale_factor": 0.1},
-        "humidity": {"address": 4002, "type": "uint16", "scale_factor": 0.1}
-    }
+        "humidity": {"address": 4002, "type": "uint16", "scale_factor": 0.1},
+    },
 }
-
-driver_code = generate_device_driver(sensor_spec)
-print("--- Generated Device Driver Code ---")
-print(driver_code)
-```
-By providing a clear list of non-negotiable requirements, you guide the AI to produce code that aligns with your project's standards, rather than a simplistic and unusable snippet.
-
-### Template-Based Code Generation
-
-An even more robust method is to provide a template and ask the AI to fill in the blanks. This gives you maximum control over the final structure.
-
-```python
-def generate_from_template(template: str, parameters: dict) -> str:
-    """Fills in a code template using AI."""
-    
-    prompt = f"""
-Fill in the following Python code template using the provided parameters.
-Only replace the placeholders in curly braces (e.g., {{CLASS_NAME}}).
-Do not change the structure of the template.
-
-**Template:**
-```python
-{template}
+print(generate_device_driver(sensor_spec))
 ```
 
-**Parameters:**
-{json.dumps(parameters, indent=2)}
-"""
-    
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.0
-    ).choices[0].message.content
-    
-    # Clean up the response to get just the code
-    if "```python" in response:
-        response = response.split("```python")[1]
-    if "```" in response:
-        response = response.split("```")[0]
-        
-    return response.strip()
+Notice the requirement to name the library and its version: models otherwise mix APIs from different library versions. Generated code is a draft: run it, test it, lint it, and review it like a colleague's pull request before it goes anywhere near production.
 
-# A generic template for an API endpoint in FastAPI
-api_endpoint_template = """
+### Template Filling: Use Code, Not the Model
+
+A common mistake is to ask a model to fill placeholders in a code template. If the values are known (a class name, a route prefix), plain string formatting or a template engine does the job deterministically, instantly, and for free. Use the model only for the part that actually needs intelligence, such as the body of a function, and insert its output into the template.
+
+```python
+from string import Template
+
+API_ENDPOINT_TEMPLATE = Template('''
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/{endpoint_prefix}", tags=["{tag_name}"])
+router = APIRouter(prefix="/$endpoint_prefix", tags=["$tag_name"])
 
-class {model_name}Response(BaseModel):
+class ${model_name}Response(BaseModel):
     id: str
     status: str
 
-@router.get("/{endpoint_path}/{{item_id}}", response_model={model_name}Response)
-async def get_{singular_name}(item_id: str):
-    \"\"\" {endpoint_description} \"\"\"
-    # --- Start AI-generated logic ---
-    # {business_logic_placeholder}
-    # --- End AI-generated logic ---
-    raise HTTPException(status_code=404, detail="Item not found")
-"""
+@router.get("/$endpoint_path/{item_id}", response_model=${model_name}Response)
+async def get_$singular_name(item_id: str):
+    """$endpoint_description"""
+$body
+''')
 
-# Parameters to fill in the template
+def generate_endpoint(params: dict, logic_description: str) -> str:
+    # Only the business logic needs the model.
+    body = client.responses.create(
+        model=MODEL,
+        input=(
+            "Write only the indented body (4 spaces) of an async FastAPI handler that receives `item_id: str`. "
+            f"It should: {logic_description}. Use a placeholder `db` object with an async `get_device(id)` method. "
+            "Return a dict with keys 'id' and 'status', or raise HTTPException(404). No code fences."
+        ),
+    ).output_text
+    return API_ENDPOINT_TEMPLATE.substitute(params, body=body.rstrip())
+
 params = {
     "endpoint_prefix": "devices",
     "tag_name": "Devices",
@@ -300,122 +274,83 @@ params = {
     "endpoint_path": "status",
     "singular_name": "device_status",
     "endpoint_description": "Gets the current status of a specific IoT device.",
-    "business_logic_placeholder": "Find device in database and return its status."
 }
-
-generated_code = generate_from_template(api_endpoint_template, params)
-print("\n--- Template-Generated API Endpoint ---")
-print(generated_code)
+print(generate_endpoint(params, "look up the device and return its status"))
 ```
+
+`string.Template` uses `$name` placeholders, so the literal braces in the FastAPI path (`{item_id}`) need no escaping. For larger templates, Jinja2 is the standard choice. After generation, run a syntax check (`ast.parse`) and your linters before using the result.
 
 ## Practical Project: A Validated IoT Configuration Generator
 
-Let's combine these patterns to build a powerful tool. Our goal is to create a system that takes a high-level description of an IoT deployment and generates a complete, validated JSON configuration file for the devices.
+Let's combine these patterns: a high-level description of a deployment goes in, and a validated configuration object comes out.
 
 ```python
-from typing import Literal
-
-# 1. Define the complete, desired output structure with Pydantic
 class SensorConfig(BaseModel):
     sensor_type: Literal["temperature", "humidity", "pressure"]
-    reading_interval_seconds: int = Field(..., ge=10) # Must be at least 10 seconds
+    reading_interval_seconds: int = Field(ge=10, description="How often to sample, in seconds (minimum 10)")
 
 class NetworkConfig(BaseModel):
     connection_type: Literal["WiFi", "Cellular", "LoRaWAN"]
-    wifi_ssid: str | None = None
-    
+    wifi_ssid: str | None = Field(default=None, description="Required when connection_type is WiFi")
+
 class DeviceConfiguration(BaseModel):
     device_id_prefix: str
     location: str
     network: NetworkConfig
-    sensors: List[SensorConfig]
+    sensors: list[SensorConfig]
     firmware_version: str = "1.0.0"
 
+    @model_validator(mode="after")
+    def check_rules(self):
+        if self.network.connection_type == "WiFi" and not self.network.wifi_ssid:
+            raise ValueError("wifi_ssid is required for WiFi connections")
+        if not self.sensors:
+            raise ValueError("at least one sensor must be configured")
+        return self
+
 class ConfigurationGenerator:
-    def __init__(self):
-        self.client = openai.OpenAI()
+    def generate(self, requirements: str, max_attempts: int = 2) -> DeviceConfiguration:
+        prompt = f"Generate an IoT device configuration for these requirements:\n<requirements>{requirements}</requirements>"
+        for attempt in range(1, max_attempts + 1):
+            try:
+                # Parsing runs the Pydantic validators too, including the cross-field rules.
+                response = client.responses.parse(model=MODEL, input=prompt, text_format=DeviceConfiguration)
+            except ValidationError as e:
+                print(f"Attempt {attempt} broke a business rule: {e.errors()[0]['msg']}")
+                prompt += f"\n\nA previous attempt was invalid: {e.errors()[0]['msg']}. Correct it."
+                continue
+            if response.output_parsed is None:
+                raise RuntimeError(f"No configuration returned (status: {response.status})")
+            return response.output_parsed
+        raise RuntimeError("Could not generate a valid configuration")
 
-    def generate(self, requirements: str) -> DeviceConfiguration:
-        # 2. Get the JSON schema from our Pydantic model
-        schema = DeviceConfiguration.model_json_schema()
-        
-        prompt = f"""
-Generate a complete IoT device configuration file based on these high-level requirements.
-You MUST respond with a JSON object that strictly validates against the provided JSON Schema.
-
-**JSON Schema to follow:**
-{json.dumps(schema, indent=2)}
-
-**User Requirements:**
-"{requirements}"
-"""
-        # 3. Use JSON mode to get a syntactically valid response
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
-        ).choices[0].message.content
-        
-        # 4. Use Pydantic to parse and validate the response
-        try:
-            validated_config = DeviceConfiguration.model_validate_json(response)
-            return validated_config
-        except Exception as e:
-            print(f"Initial generation failed validation: {e}")
-            # 5. Implement a retry loop to ask the AI to fix its own mistake
-            return self._fix_and_retry(prompt, response, str(e))
-
-    def _fix_and_retry(self, original_prompt, failed_response, error_message):
-        print("Attempting to self-correct the generated JSON...")
-        fix_prompt = f"""
-The JSON you previously generated failed validation with the following error:
-Error: "{error_message}"
-
-Original failed JSON:
-{failed_response}
-
-Please review the original prompt, the JSON schema, and the error message.
-Then, generate a new, corrected JSON object that fixes the error and perfectly matches the schema.
-
-Original Prompt:
-{original_prompt}
-"""
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": fix_prompt}],
-            response_format={"type": "json_object"}
-        ).choices[0].message.content
-        
-        # Try validating one last time
-        return DeviceConfiguration.model_validate_json(response)
-
-# --- Demo of the complete system ---
 generator = ConfigurationGenerator()
-user_req = "I need to deploy temperature and humidity sensors in our cold storage warehouse. They should report every 5 minutes and connect via our 'Warehouse-IoT' WiFi network."
-
-final_config = generator.generate(user_req)
-
-print("--- Final Validated Configuration ---")
-print(final_config.model_dump_json(indent=2))
+config = generator.generate(
+    "Deploy temperature and humidity sensors in our cold storage warehouse. "
+    "They should report every 5 minutes and connect via our 'Warehouse-IoT' WiFi network."
+)
+print(config.model_dump_json(indent=2))   # reading_interval_seconds should be 300
 ```
-This system demonstrates a robust, production-ready workflow for structured output generation. It clearly defines the desired output, uses JSON mode for syntactic correctness, validates the data with Pydantic for semantic correctness, and even includes a self-correction loop to handle errors gracefully.
+
+The structure is guaranteed by the API, the business rules by Pydantic, and failures are retried with specific feedback, with a hard limit. Because the result is a typed object, the rest of your code (deployment scripts, a database insert) can use it with confidence.
 
 ## Conclusion
 
-Structured output is the bridge between the creative, probabilistic world of LLMs and the deterministic, logical world of software applications. By mastering these patterns, you can build reliable data pipelines, automated code generators, and robust configuration systems powered by AI.
+Structured output is the bridge between the probabilistic world of LLMs and the deterministic world of software.
 
 Remember these key practices:
--   **Be Explicit:** Tell the AI the exact format you want. Provide a schema or examples.
--   **Use JSON Mode:** Guarantee syntactic validity and eliminate parsing errors.
--   **Validate with Pydantic:** Enforce your data contract with type hints, constraints, and business rules.
--   **Constrain Code Generation:** Use templates and clear requirements to get production-quality code.
--   **Implement Self-Correction:** Build retry loops that ask the AI to fix its own errors.
+-   **Prefer Structured Outputs** (schema-enforced) over JSON mode, and JSON mode over plain prompting.
+-   **Define the schema once in Pydantic** and let the SDK enforce and parse it.
+-   **Validate business rules in code**, and retry with specific feedback, a bounded number of times.
+-   **Constrain code generation** with explicit requirements, and test generated code like any other code.
+-   **Don't use a model for deterministic work** such as template filling.
 
-You are now equipped to build AI systems that don't just talk, but speak the precise, structured language that your applications understand.
+You are now equipped to build AI systems that don't just talk, but speak the precise, structured language your applications understand.
 
 # References and Further Reading
 
-- Structured Output in Large Language Models (LLMs) (Medium). https://mehmetozkaya.medium.com/structured-output-in-large-language-models-llms-88e6f8602e25
-- Structured Output Generation in LLMs: Techniques, Comparisons, and Applications (Zero Point Labs). https://zeropointlabs.ai/structured-output-generation-in-llms-techniques-comparisons-and-applications/
+- Structured Outputs guide (OpenAI). https://platform.openai.com/docs/guides/structured-outputs
+- Structured outputs (Claude documentation). https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+- Structured output (Gemini API documentation). https://ai.google.dev/gemini-api/docs/structured-output
+- Pydantic documentation: validators. https://docs.pydantic.dev/latest/concepts/validators/
 - 4. Structured Output (Taming LLMs). https://www.tamingllms.com/notebooks/structured_output.html
-- Structured outputs in LLMs: Definition, techniques, applications, benefits (LeewayHertz). https://www.leewayhertz.com/structured-outputs-in-llms/
