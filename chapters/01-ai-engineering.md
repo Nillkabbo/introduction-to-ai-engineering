@@ -271,7 +271,7 @@ This chapter was a whirlwind tour of the absolute fundamentals. Let's recap the 
 -   A well-crafted `system` message is your primary tool for controlling the AI's behavior.
 -   The basic Python code to call an AI is simple and follows a consistent pattern across different models.
 
-You now possess the foundational knowledge required to build any AI application. Every complex system, from autonomous agents to sophisticated data analyzers, is built upon the simple, conversational pattern you've learned here. In the next chapter, we'll dive deeper into the practical building blocks of prompts and a few essential parameters that will give you even more control over your AI.
+You now possess the foundational knowledge required to build any AI application. Every complex system, from autonomous agents to sophisticated data analyzers, is built upon the simple, conversational pattern you've learned here. In the next chapter, we'll look at the three building blocks you will balance in every AI application: tokens (which drive cost), embeddings (which capture meaning), and the context window (the model's working memory).
 
 # References and Further Reading
 
