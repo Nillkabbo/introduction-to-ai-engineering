@@ -261,15 +261,14 @@ Two things changed the landscape in 2025–2026 and are worth knowing from day o
 
 **Our Recommendation for Learning:** Start with a cost-efficient model such as **`gpt-6-luna`**, and keep the model name in a single variable so you can swap it. The core concepts you learn transfer directly to any provider, and model names will have changed again by the time you read this, so treat the table above as a snapshot.
 
-## What You've Learned
+## Key Takeaways
 
-This chapter was a whirlwind tour of the absolute fundamentals. Let's recap the essential takeaways.
-
--   LLMs are pattern-recognition engines that you interact with through natural language conversations.
--   The core interaction is a **prompt** from you and a **response** from the AI.
--   Conversations are structured with `roles`: `system` (the persona), `user` (you), and `assistant` (the AI).
--   A well-crafted `system` message is your primary tool for controlling the AI's behavior.
--   The basic Python code to call an AI is simple and follows a consistent pattern across different models.
+-   An LLM generates text one token at a time, each time predicting a probability distribution over the next token from everything it has seen so far. The context you give it (instructions, examples, history) is what steers that pattern completion.
+-   Use LLMs for messy, open-ended language that no `if` statement could anticipate, and keep deterministic tasks like the tip calculation in ordinary code.
+-   Every call follows the same pattern: create a client that reads `OPENAI_API_KEY` from the environment (never hard-code the key), call `client.responses.create(model=..., input=...)`, and read `response.output_text`.
+-   A conversation is a list of `role`/`content` messages: `system` sets behavior for the whole conversation (the Responses API also accepts it as `instructions`), `user` is the human, and `assistant` holds the model's earlier replies, which you send back to give it context.
+-   Keep the model ID in one `MODEL` constant (later, in configuration) and learn on a cost-efficient tier such as `gpt-6-luna`. Tiers trade capability against speed and cost, and reasoning models are slower and pricier per request.
+-   The older Chat Completions API (`client.chat.completions.create`) uses the same concepts of models, messages and roles, so code written against it is easy to read and port.
 
 You now possess the foundational knowledge required to build any AI application. Every complex system, from autonomous agents to sophisticated data analyzers, is built upon the simple, conversational pattern you've learned here. In the next chapter, we'll look at the three building blocks you will balance in every AI application: tokens (which drive cost), embeddings (which capture meaning), and the context window (the model's working memory).
 

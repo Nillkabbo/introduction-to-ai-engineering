@@ -445,6 +445,23 @@ You have moved beyond single prompts to multi-call reasoning workflows. Each com
 
 These strategies combine well: a chain can include a self-consistency vote at its riskiest step, or a ReAct loop to gather facts before a Tree-of-Thought planning step. Combined with measurement, they are how you engineer with AI rather than just prompting it.
 
+## Key Takeaways
+
+-   Try one call to a capable model at higher reasoning effort before building any multi-call workflow; every strategy here multiplies cost and latency, so measure that it actually helps on your task.
+-   Self-consistency only works on answers you can compare: force the final answer into a fixed label set or a number, discard malformed votes, and treat a low agreement rate as a signal to escalate.
+-   In Tree-of-Thought and debate, develop each branch or agent in a separate call (and snapshot the previous round) so the paths are not anchored on each other; debate surfaces trade-offs but does not remove the shared blind spots of one model.
+-   A robust ReAct loop parses actions with patterns, feeds format errors and unknown tools back as observations, has an explicit finish action, and stops at a hard step limit. In production, use native tool calling instead of text parsing.
+-   Reflexion is strongest with an external signal (tests, a schema, a reference document); pure self-critique can turn correct answers into wrong ones, so use a structured verdict against explicit criteria and a bounded number of attempts.
+-   Prompt chaining is the production workhorse: one job per step, deterministic validation in plain code between steps, and an early stop with a clear reason when a check fails.
+
+## Exercises
+
+**1. Warm-up:** Run `self_consistency_diagnosis` with `num_runs=7` on the thermostat issue and on a deliberately vague issue of your own ("the sensor is acting weird"). Also count how many replies were discarded as malformed. You are done when you can show the agreement rate and the malformed count for both issues, and the vague issue has the lower agreement.
+
+**2. Build:** Give `ReflexionAgent` a real external check. Ask it to write a Python function `adc_to_celsius(raw: int) -> float` for a sensor whose 12-bit reading maps linearly from 0 to 4095 onto -40 to 125 degrees Celsius, then replace `_critique` with code that runs the generated function against five `assert` cases (including both ends of the range and an out-of-range value that must raise `ValueError`) and returns the failing cases as the issues. Run the generated code in a separate subprocess with a timeout, not with `exec()` in your own process. You are done when the loop either passes all five asserts or stops after `max_attempts`, and prints the attempt number and the failing asserts for every attempt.
+
+**3. Stretch:** Measure whether self-consistency is worth its cost. Write 10 device issues with a known correct label from `ROOT_CAUSES`, then compare three setups: a single call at `effort="medium"`, a single call at `effort="high"`, and self-consistency with 5 runs at `effort="medium"`. Record accuracy, number of API calls, and total wall-clock time for each. You are done when you have a small table of all three numbers per setup and a one-sentence recommendation backed by it.
+
 # References and Further Reading
 
 - Self-Consistency Improves Chain of Thought Reasoning in Language Models (Wang et al., 2022). https://arxiv.org/abs/2203.11171

@@ -555,13 +555,24 @@ Before you let an agent like this act on real equipment, add the safeguards late
 
 We have journeyed from a simple, stateless chatbot to a fully autonomous agent. By systematically building the core components of perception, memory, reasoning, and action, we have demystified the process. You now understand that an agent is not a monolithic black box, but a system of cooperating parts, each with a clear responsibility.
 
-You have learned to:
--   Structure agent behavior around the **Perceive-Think-Act** loop.
--   Design extensible systems for sensing the environment and acting upon it.
--   Leverage LLMs as the core reasoning engine for decision-making.
--   Assemble these parts into a cohesive, goal-driven autonomous entity.
-
 This foundation is the springboard into the wider world of agentic AI. From here, you can explore more advanced topics like multi-agent collaboration, complex tool use, and long-term planning. The principles you've learned today are the universal building blocks for creating intelligent systems that can actively solve problems in the world.
+
+## Key Takeaways
+
+-   Apply the workflow-vs-agent test first: if you can draw the steps as a flowchart, build a workflow where your code controls the sequence. Use an agent only when the next step depends on what is discovered along the way and mistakes can be caught and recovered from.
+-   An agent is a **Perceive-Think-Act** loop built from four replaceable parts: a `PerceptionSystem` of sensor functions, a `MemorySystem`, an LLM-backed `ReasoningEngine`, and an `ActionSystem` registry of callable actions.
+-   Tell the model exactly which actions exist (names and parameters) in the reasoning prompt, ask for JSON, and drop any recommended action outside the allowed set before executing it. Otherwise the model invents actions your code cannot run.
+-   Store memories as JSON-serializable copies (timestamps as ISO strings), and feed recent action results back into the context so the agent does not repeat itself, such as re-sending the same alert every cycle.
+-   Never call a synchronous LLM client directly inside `async` code: wrap it in `asyncio.to_thread` or use `AsyncOpenAI`, so a slow model call does not stall the loop.
+-   Before an agent touches real equipment, restrict it to safe actions, require human approval for consequential ones, cap actions per cycle, and log every decision. Prefer cheap rule-based checks that invoke the LLM only when something looks unusual.
+
+## Exercises
+
+**1. Warm-up:** Add a `status_sensor` that reports each device's `status` field, register it alongside `temperature_sensor`, and change `simulate_environment` so a `device_003` goes offline after the second cycle. Also register a deliberately broken sensor that raises an exception. You are done when each cycle's perceptions show both `temperatures` and `statuses`, and the broken sensor appears as an `{"error": ...}` entry while the cycle keeps running.
+
+**2. Build:** Add a guard between Think and Act in `run_cycle`: a `max_actions_per_cycle` limit of 2, plus parameter checks for `send_alert` (`device_id` must exist in the current environment and `level` must be `info`, `warning` or `critical`). Rejected actions are not executed; store them in memory as `action_rejected` with a reason. Test it without calling the model by replacing `agent.reasoner` with a stub whose `reason` method returns a hand-written decision containing one unknown device, one invalid level and three valid alerts. Done means exactly two alerts execute and every rejection shows up in `memory.recall("action_rejected")`.
+
+**3. Stretch:** Measure the cost of calling the LLM on a timer, then build the cheaper design. Add a rule-based pre-check that calls the reasoning engine only when a temperature is at or above 88 degrees or a device's status changed since the previous cycle, and count LLM calls and alerts over 20 cycles with `interval_seconds=0`. You are done when you can report LLM calls before and after the change, and the agent still sends its alert in the cycle where `device_002` first crosses 90 degrees.
 
 # References and Further Reading
 

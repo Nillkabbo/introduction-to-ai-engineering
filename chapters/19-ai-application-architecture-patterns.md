@@ -324,6 +324,22 @@ graph TD
 
 This architecture effectively separates concerns, enabling independent scaling, resilience, and the use of the best technology for each specific job. It is a robust blueprint for building high-performance, enterprise-grade AI applications.
 
+## Key Takeaways
+
+-   Start with a monolith: one FastAPI app with the model call, a Redis cache keyed on a hash of the input, and the database is easy to build, test, and deploy. Split out an AI processing service only when you need to scale or isolate it independently.
+-   A dedicated AI service owns all model calls (prompts, clients, retries, caching, cost tracking); with hosted APIs its scaling limit is usually the provider's rate limits, not CPU or GPUs.
+-   Event-driven architecture fits AI's variable latency: services publish and consume events such as `sensor_reading` and `analysis_complete` on a message bus, so producers never wait on analysis and new consumers can be added without changing existing services.
+-   Polyglot persistence picks a store per data type (relational, document, key-value, vector, time series), but every database is another system to operate; "Postgres plus Redis" (with JSONB, `pgvector`, and TimescaleDB) covers most needs until measurements say otherwise.
+-   Treat prompts and model IDs as versioned configuration: load them from YAML into Pydantic models, validate cross-references at startup so a typo stops the deployment, keep API keys in a secrets manager, and log the prompt version with every output.
+
+## Exercises
+
+**1. Warm-up:** Set up the `ConfigManager` with the two YAML files from this chapter and write three small tests: one that loads the valid config, one where a prompt references a profile name that doesn't exist, and one where `reasoning_effort` is set to an invalid value such as `"extreme"`. Done means the first test passes and the other two fail at load time with a Pydantic `ValidationError` whose message names the offending field or prompt.
+
+**2. Build:** Refactor the monolith's `/analyze` endpoint to take its instructions, model ID, and reasoning effort from the `ConfigManager` instead of hard-coded values, and include the prompt version in both the cache key and the response. Change the prompt's `version` and `template` in YAML and restart. Done means a request sent before the change and the same request after it produce different cache keys (the second is a cache miss), and the response body shows which prompt version produced each answer.
+
+**3. Stretch:** Build a minimal event-driven pipeline without Kafka: use a Redis list (or Redis Streams) as the bus, with a sensor publisher that emits `sensor_reading` events, an AI analysis consumer that publishes `analysis_complete` events, and two independent subscribers (an alerting printer and a writer that appends results to a JSON Lines file). Then stop the AI consumer, publish 20 readings, and start it again. Done means all 20 readings are eventually analyzed and stored with no publisher changes, and adding a third subscriber (for example a cost counter) requires no edits to the existing services.
+
 # References and Further Reading
 
 - Generative AI Design Patterns: A Comprehensive Guide (Towards Data Science): https://towardsdatascience.com/generative-ai-design-patterns-a-comprehensive-guide-41425a40d7d0
