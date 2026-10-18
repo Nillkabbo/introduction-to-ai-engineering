@@ -288,6 +288,8 @@ from dataclasses import dataclass
 
 import openai
 
+REPORT_MODEL = "gpt-6-luna"   # in practice, read from config like `Config` above
+
 @dataclass
 class FleetMetrics:
     crash_rate: float          # crashes per device-day
@@ -314,7 +316,7 @@ def canary_gate(canary: FleetMetrics, control: FleetMetrics) -> tuple[str, list[
 def draft_release_report(client, firmware: str, decision: str, reasons: list[str], canary_logs: str) -> str:
     """The LLM explains and summarizes; it does not decide."""
     return client.responses.create(
-        model="gpt-6-luna",
+        model=REPORT_MODEL,
         instructions="You write concise firmware release reports for on-call engineers. Do not change or second-guess the decision.",
         input=f"""
 Firmware: {firmware}

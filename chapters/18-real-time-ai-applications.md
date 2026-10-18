@@ -26,6 +26,7 @@ import time
 import openai
 
 client = openai.OpenAI()
+MODEL = "gpt-6-luna"
 
 # A synchronous, blocking approach. This is NOT suitable for real-time.
 def traditional_monitoring(sensor_readings):
@@ -34,7 +35,7 @@ def traditional_monitoring(sensor_readings):
     
     for reading in sensor_readings:
         # Each API call blocks the entire process for one to several seconds.
-        client.responses.create(model="gpt-6-luna", input=f"Analyze this reading: {reading}")
+        client.responses.create(model=MODEL, input=f"Analyze this reading: {reading}")
         print(f"Analyzed reading {reading['id']}.")
 
     print(f"Finished in {time.time() - start_time:.2f} seconds.")

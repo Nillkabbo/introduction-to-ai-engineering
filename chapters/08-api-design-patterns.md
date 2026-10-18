@@ -267,6 +267,10 @@ import anthropic
 import openai
 from google import genai
 
+OPENAI_MODEL = "gpt-6-luna"
+CLAUDE_MODEL = "claude-sonnet-5-5"
+GEMINI_MODEL = "gemini-3.8-flash"
+
 class AIProviderEnum(Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
@@ -286,18 +290,18 @@ class MultiProviderClient:
         print(f"--> Calling {provider.value}...")
 
         if provider == AIProviderEnum.OPENAI:
-            return self.openai.responses.create(model="gpt-6-luna", input=prompt).output_text
+            return self.openai.responses.create(model=OPENAI_MODEL, input=prompt).output_text
 
         if provider == AIProviderEnum.ANTHROPIC:
             message = self.anthropic.messages.create(
-                model="claude-sonnet-5-5",
+                model=CLAUDE_MODEL,
                 max_tokens=16000,
                 messages=[{"role": "user", "content": prompt}],
             )
             return "".join(b.text for b in message.content if b.type == "text")
 
         if provider == AIProviderEnum.GOOGLE:
-            return self.google.models.generate_content(model="gemini-3.8-flash", contents=prompt).text
+            return self.google.models.generate_content(model=GEMINI_MODEL, contents=prompt).text
 
         raise ValueError(f"Unknown provider: {provider}")
 ```

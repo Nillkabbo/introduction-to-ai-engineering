@@ -28,6 +28,7 @@ import openai
 
 app = FastAPI()
 client = openai.OpenAI()
+MODEL = "gpt-6-luna"
 
 # BAD: Global, in-memory state. This will not work across multiple servers
 # and will be lost on restart. Memory will also grow indefinitely.
@@ -39,7 +40,7 @@ async def analyze_data_naively(device_id: str, data: dict):
     
     # 1. Blocking call inside an async endpoint: it freezes the event loop, so
     #    every other request on this worker waits until the model responds.
-    analysis = client.responses.create(model="gpt-6-luna", input=f"Analyze this data: {data}").output_text
+    analysis = client.responses.create(model=MODEL, input=f"Analyze this data: {data}").output_text
     
     # 2. Unbounded Memory: This dictionary grows with every conversation,
     #    eventually leading to an out-of-memory crash.

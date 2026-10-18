@@ -341,6 +341,8 @@ result = claude_client.messages.parse(
 print(result.parsed_output)
 ```
 
+`output_format=` here is an SDK convenience: `messages.parse` turns the Pydantic class into a JSON schema, sends it in the API's `output_config={"format": ...}` field, and validates the reply into `parsed_output`. If you call the HTTP API directly (or pass a raw schema dict), use `output_config` yourself; the old top-level `output_format` request field is deprecated.
+
 Chapter 11 covers structured outputs across all providers in depth.
 
 ## Choosing a Model (and a Provider)

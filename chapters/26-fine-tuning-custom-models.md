@@ -129,6 +129,7 @@ On a hosted platform, the next steps are always: upload the training (and valida
 import openai
 
 client = openai.OpenAI()
+MODEL = "gpt-6-luna"   # the prompted baseline and the explainer below use this
 
 # 2. Upload the data files.
 train_file = client.files.create(file=open("train.jsonl", "rb"), purpose="fine-tune")
@@ -186,7 +187,7 @@ def evaluate(predict, test_set: list[tuple[str, str]]) -> dict:
 FEW_SHOT = SYSTEM + "\nExamples:\n- 'Uplink lost on GW-4' -> Connectivity\n- 'Cell voltage 2.1V' -> Power"
 
 def baseline_predict(log: str) -> str:
-    return client.responses.create(model="gpt-6-luna", instructions=FEW_SHOT, input=log).output_text.strip()
+    return client.responses.create(model=MODEL, instructions=FEW_SHOT, input=log).output_text.strip()
 
 # baseline = evaluate(baseline_predict, test)
 # tuned = evaluate(lambda log: classify_log(client, "ft:your-model-id", log), test)
@@ -219,7 +220,7 @@ def explain_error(code: str, user_question: str) -> str:
     if entry is None:
         return f"Error code {code} is not in the AquaSense 300 reference. Please check the code or contact support."
     return client.responses.create(
-        model="gpt-6-luna",
+        model=MODEL,
         instructions="You are an AquaSense 300 support assistant. Explain using only the reference entry provided.",
         input=f"Reference for {code}: {json.dumps(entry)}\n\nUser question: {user_question}",
     ).output_text

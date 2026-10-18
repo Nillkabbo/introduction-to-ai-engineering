@@ -199,15 +199,18 @@ In a real application, the approval request goes to a dashboard, Slack, or a mob
 Let's build a workflow for a critical IoT alert, with enrichment, AI diagnosis, human approval, and conditional follow-up.
 
 ```python
+from typing import Literal
+
 import openai
 from pydantic import BaseModel
 
 client = openai.OpenAI()
+MODEL = "gpt-6-luna"
 
 class Diagnosis(BaseModel):
     summary: str
     action: str
-    confidence: str      # "low" | "medium" | "high"
+    confidence: Literal["low", "medium", "high"]
 
 def ingest_alert(inputs: dict, params: dict) -> dict:
     print("TASK: ingest alert")
@@ -222,7 +225,7 @@ def enrich_with_device_data(inputs: dict, params: dict) -> dict:
 def ai_initial_diagnosis(inputs: dict, params: dict) -> dict:
     print("TASK: AI diagnosis")
     response = client.responses.parse(
-        model="gpt-6-luna",
+        model=MODEL,
         instructions="You are an IoT reliability engineer. Propose the single safest next action.",
         input=f"<alert>{json.dumps(inputs['enrich'])}</alert>",
         text_format=Diagnosis,

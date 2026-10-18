@@ -124,11 +124,12 @@ Let's get the embedding vector for a piece of text. The `text-embedding-3-small`
 import openai
 
 client = openai.OpenAI()
+EMBEDDING_MODEL = "text-embedding-3-small"
 
 def get_embedding(text: str) -> list[float]:
     """Generates an embedding vector for a given piece of text."""
     response = client.embeddings.create(
-        model="text-embedding-3-small",
+        model=EMBEDDING_MODEL,
         input=text
     )
     return response.data[0].embedding
@@ -154,7 +155,7 @@ def find_most_similar(query: str, options: list[str]) -> str:
     
     # 1. Get embeddings for the query and all options in a single API call
     response = client.embeddings.create(
-        model="text-embedding-3-small",
+        model=EMBEDDING_MODEL,
         input=[query] + options
     )
     
