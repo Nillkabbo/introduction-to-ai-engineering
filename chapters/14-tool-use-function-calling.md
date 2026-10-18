@@ -214,6 +214,7 @@ Claude's tool definitions use `input_schema` instead of `parameters`; tool calls
 import anthropic
 
 claude = anthropic.Anthropic()
+CLAUDE_MODEL = "claude-opus-5-5"
 CLAUDE_TOOLS = [
     {"name": s["name"], "description": s["description"], "input_schema": s["parameters"], "strict": True}
     for s in TOOL_SCHEMAS
@@ -223,7 +224,7 @@ def run_claude_tool_loop(user_message: str, max_turns: int = 8) -> str:
     messages = [{"role": "user", "content": user_message}]
     for _ in range(max_turns):
         response = claude.messages.create(
-            model="claude-opus-5-5", max_tokens=16000, tools=CLAUDE_TOOLS, messages=messages
+            model=CLAUDE_MODEL, max_tokens=16000, tools=CLAUDE_TOOLS, messages=messages
         )
         if response.stop_reason != "tool_use":
             return "".join(b.text for b in response.content if b.type == "text")
@@ -248,6 +249,7 @@ from google import genai
 from google.genai import types
 
 gemini = genai.Client()
+GEMINI_MODEL = "gemini-3.8-flash"
 
 def get_fleet_status(region: str) -> dict:
     """Returns online/offline device counts for a region.
@@ -258,7 +260,7 @@ def get_fleet_status(region: str) -> dict:
     return {"region": region, "online": 100, "offline": 2}
 
 response = gemini.models.generate_content(
-    model="gemini-3.8-flash",
+    model=GEMINI_MODEL,
     contents="What's the status of the fleet in the 'north' region?",
     config=types.GenerateContentConfig(tools=[get_fleet_status]),
 )

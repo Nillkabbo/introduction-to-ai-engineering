@@ -377,10 +377,8 @@ Remember the core principle: **garbage in, garbage out.** A vague prompt yields 
 
 # References and Further Reading
 
-- Prompt Engineering: The Definitive Step-By-Step How to Guide (Plain English). https://ai.plainenglish.io/prompt-engineering-the-definitive-step-by-step-how-to-guide-fb7c5eea1900
-- Advanced Prompt Engineering for Content Creators – Full Handbook (freeCodeCamp). https://www.freecodecamp.org/news/advanced-prompt-engineering-handbook
-- Best practices for LLM prompt engineering (Palantir Docs). https://www.palantir.com/docs/foundry/aip/best-practices-prompt-engineering
-- Mastering Prompt Engineering for Large Language Models (Medium). https://medium.com/@nasdag/mastering-prompt-engineering-for-large-language-models-1afafb52c44b
+- Language Models are Few-Shot Learners (Brown et al., 2020). https://arxiv.org/abs/2005.14165
+- Best practices for LLM prompt engineering (Palantir Docs). https://palantir.com/docs/foundry/aip/best-practices-prompt-engineering/
 - Chain-of-Thought Prompting Elicits Reasoning in Large Language Models (Wei et al., 2022). https://arxiv.org/abs/2201.11903
 - Prompt engineering overview (Claude documentation). https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/overview
 - Prompt engineering guide (OpenAI documentation). https://platform.openai.com/docs/guides/prompt-engineering

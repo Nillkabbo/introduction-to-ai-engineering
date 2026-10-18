@@ -53,6 +53,7 @@ from google import genai
 from google.genai import types
 
 client = genai.Client()
+GEMINI_MODEL = "gemini-4-argon"   # a frontier model for cross-modal reasoning
 
 def upload_and_wait(path: str) -> types.File:
     uploaded = client.files.upload(file=path)
@@ -77,7 +78,7 @@ the attached manual (PDF), the video and audio recorded during the fault, and th
 Give the most likely root cause, cite specific evidence from each source (video timestamps as MM:SS,
 sounds you hear, log lines, manual sections), and a prioritized action plan.
 """
-    response = client.models.generate_content(model="gemini-4-argon", contents=[*files, prompt])
+    response = client.models.generate_content(model=GEMINI_MODEL, contents=[*files, prompt])
     return response.text
 
 # print(diagnose_machine_failure("machine_fault.mp4", "machine_noise.mp3",

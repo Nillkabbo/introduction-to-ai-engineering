@@ -263,36 +263,35 @@ Each chapter ends with **Key Takeaways** to review what matters and three graded
 ## Additional Resources
 
 ### General AI Engineering & LLMs
-- [GenAI Handbook](https://genai-handbook.github.io/) – A living, textbook-style roadmap for learning modern AI, LLMs, and generative models, with curated links to the best blogs, videos, and courses.
-- [The 2025 AI Engineering Reading List (Latent.Space)](https://www.latent.space/p/2025-papers) – A practical, annotated list of 50+ must-read papers, blogs, and models across LLMs, prompting, RAG, agents, codegen, vision, and more.
-- [Full End-to-End Pipeline for LLM Apps (Rohan's Bytes)](https://www.rohan-paul.com/p/full-end-to-end-pipeline-for-developing) – A 2024–2025 guide to building, deploying, and monitoring LLM-powered applications, with technical best practices and industry case studies.
+- [GenAI Handbook](https://genai-handbook.github.io/) - A living, textbook-style roadmap for learning modern AI, LLMs, and generative models, with curated links to the best blogs, videos, and courses.
+- [The 2025 AI Engineering Reading List (Latent.Space)](https://www.latent.space/p/2025-papers) - A practical, annotated list of 50+ must-read papers, blogs, and models across LLMs, prompting, RAG, agents, codegen, vision, and more.
+- [What We Learned from a Year of Building with LLMs, Part I (O'Reilly)](https://oreilly.com/radar/what-we-learned-from-a-year-of-building-with-llms-part-i/) - Practitioner lessons from Eugene Yan, Hamel Husain, Shreya Shankar and others on prompting, evals, RAG, and shipping LLM products.
 
 ### Prompt Engineering
-- [Prompt Engineering Guide](https://www.promptingguide.ai/) – Comprehensive guide to prompting techniques, from basics to advanced strategies like chain-of-thought, tree-of-thought, and multi-agent systems.
-- [OpenAI Prompt Engineering Guide](https://platform.openai.com/docs/guides/prompt-engineering) – Official best practices and examples for crafting effective prompts.
-- [Prompt Engineering Mastery: The Complete Guide](https://www.aifire.co/p/the-ultimate-guide-for-mastering-ai-engineering-in-2024) – A step-by-step roadmap for mastering prompt engineering and LLMs, with practical resources and project ideas.
-- [Claude Prompt Engineering Guide](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/overview) – Anthropic’s guide to prompt design for Claude models.
+- [Prompt Engineering Guide](https://www.promptingguide.ai/) - Comprehensive guide to prompting techniques, from basics to advanced strategies like chain-of-thought, tree-of-thought, and multi-agent systems.
+- [OpenAI Prompt Engineering Guide](https://platform.openai.com/docs/guides/prompt-engineering) - Official best practices and examples for crafting effective prompts.
+- [Claude Prompt Engineering Guide](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/overview) - Anthropic's guide to prompt design for Claude models.
 
 ### AI Agents & Autonomous Systems
-- [Awesome AI Agents (GitHub)](https://github.com/jim-schwoebel/awesome_ai_agents) – A massive, regularly updated list of 1,500+ resources, tools, frameworks, datasets, and courses for building and learning about AI agents.
-- [A Survey on LLM-based Autonomous Agents (arXiv)](https://arxiv.org/abs/2309.07864) – Comprehensive academic survey of agent architectures, tool use, evaluation, and future directions.
-- [LangChain Documentation](https://python.langchain.com/docs/) – The most popular open-source framework for building LLM-powered agents, tool use, and RAG systems.
-- [LlamaIndex Documentation](https://docs.llamaindex.ai/) – Framework for building data-augmented LLM applications and agentic workflows.
+- [Awesome AI Agents (GitHub)](https://github.com/jim-schwoebel/awesome_ai_agents) - A massive, regularly updated list of 1,500+ resources, tools, frameworks, datasets, and courses for building and learning about AI agents.
+- [A Survey on LLM-based Autonomous Agents (arXiv)](https://arxiv.org/abs/2309.07864) - Comprehensive academic survey of agent architectures, tool use, evaluation, and future directions.
+- [LangChain Documentation](https://python.langchain.com/docs/) - The most popular open-source framework for building LLM-powered agents, tool use, and RAG systems.
+- [LlamaIndex Documentation](https://docs.llamaindex.ai/) - Framework for building data-augmented LLM applications and agentic workflows.
 
 ### Agent Standards & Security
-- [Model Context Protocol](https://modelcontextprotocol.io) – The open standard for connecting AI applications to tools and data.
-- [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llm-top-10/) – The most critical security risks for LLM-based applications.
-- [Building Effective Agents (Anthropic)](https://www.anthropic.com/engineering/building-effective-agents) – Practical patterns for workflows and agents.
+- [Model Context Protocol](https://modelcontextprotocol.io) - The open standard for connecting AI applications to tools and data.
+- [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llm-top-10/) - The most critical security risks for LLM-based applications.
+- [Building Effective Agents (Anthropic)](https://www.anthropic.com/engineering/building-effective-agents) - Practical patterns for workflows and agents.
 
 ### RAG (Retrieval-Augmented Generation)
-- [Deconstructing RAG (LangChain Blog)](https://blog.langchain.dev/deconstructing-rag/) – Practical guide to RAG architectures, vector databases, and best practices.
-- [RAG Course (DeepLearning.AI)](https://learn.deeplearning.ai/courses/advanced-rag) – Free video course on advanced RAG techniques and evaluation.
+- [Deconstructing RAG (LangChain Blog)](https://blog.langchain.dev/deconstructing-rag/) - Practical guide to RAG architectures, vector databases, and best practices.
+- [RAG Course (DeepLearning.AI)](https://learn.deeplearning.ai/courses/advanced-rag) - Free video course on advanced RAG techniques and evaluation.
 
 ### Benchmarks, Datasets, and Evaluation
-- [HELM: Holistic Evaluation of Language Models (Stanford)](https://crfm.stanford.edu/helm/latest/) – A living benchmark for LLMs, covering knowledge, reasoning, safety, and more.
-- [Hugging Face Datasets](https://huggingface.co/datasets) – Thousands of open datasets for LLM training, fine-tuning, and evaluation.
+- [HELM: Holistic Evaluation of Language Models (Stanford)](https://crfm.stanford.edu/helm/latest/) - A living benchmark for LLMs, covering knowledge, reasoning, safety, and more.
+- [Hugging Face Datasets](https://huggingface.co/datasets) - Thousands of open datasets for LLM training, fine-tuning, and evaluation.
 
 ### Community & News
-- [Latent.Space Newsletter](https://www.latent.space/) – Weekly deep dives and news for AI engineers.
-- [AI Fire Academy](https://www.aifire.co/) – Practical guides, workflows, and a community for mastering AI engineering.
+- [Latent.Space Newsletter](https://www.latent.space/) - Weekly deep dives and news for AI engineers.
+- [Simon Willison's Weblog](https://simonwillison.net/series/) - A practitioner's running commentary on LLMs, tools, and prompt injection, organized into topic series.
 ---

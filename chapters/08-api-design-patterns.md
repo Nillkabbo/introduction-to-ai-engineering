@@ -267,6 +267,10 @@ import anthropic
 import openai
 from google import genai
 
+OPENAI_MODEL = "gpt-6-luna"
+CLAUDE_MODEL = "claude-sonnet-5-5"
+GEMINI_MODEL = "gemini-3.8-flash"
+
 class AIProviderEnum(Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
@@ -286,18 +290,18 @@ class MultiProviderClient:
         print(f"--> Calling {provider.value}...")
 
         if provider == AIProviderEnum.OPENAI:
-            return self.openai.responses.create(model="gpt-6-luna", input=prompt).output_text
+            return self.openai.responses.create(model=OPENAI_MODEL, input=prompt).output_text
 
         if provider == AIProviderEnum.ANTHROPIC:
             message = self.anthropic.messages.create(
-                model="claude-sonnet-5-5",
+                model=CLAUDE_MODEL,
                 max_tokens=16000,
                 messages=[{"role": "user", "content": prompt}],
             )
             return "".join(b.text for b in message.content if b.type == "text")
 
         if provider == AIProviderEnum.GOOGLE:
-            return self.google.models.generate_content(model="gemini-3.8-flash", contents=prompt).text
+            return self.google.models.generate_content(model=GEMINI_MODEL, contents=prompt).text
 
         raise ValueError(f"Unknown provider: {provider}")
 ```
@@ -370,10 +374,9 @@ By incorporating these patterns into your development workflow, you move from be
 
 # References and Further Reading
 
-- 5 Essential API Design Patterns for Successful AI Model Implementation. https://dev.to/stellaacharoiro/5-essential-api-design-patterns-for-successful-ai-model-implementation-2dkk
-- Beyond the Gang of Four: Practical Design Patterns for Modern AI Systems. https://www.infoq.com/articles/practical-design-patterns-modern-ai-systems/
-- Generative AI Design Patterns: A Comprehensive Guide. https://towardsdatascience.com/generative-ai-design-patterns-a-comprehensive-guide-41425a40d7d0
-- AI Patterns: A Structured Approach to Artificial Intelligence Development. https://medium.com/@xavier.mehaut/ai-patterns-a-structured-approach-to-artificial-intelligence-development-9d97903c8e34
+- Rate limits (OpenAI API documentation). https://developers.openai.com/api/docs/guides/rate-limits
+- Batch API (OpenAI API documentation). https://developers.openai.com/api/docs/guides/batch
+- Claude API errors (Claude API documentation). https://platform.claude.com/docs/en/api/errors
 - Exponential Backoff And Jitter (AWS Architecture Blog). https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
 - Tenacity documentation. https://tenacity.readthedocs.io/
 

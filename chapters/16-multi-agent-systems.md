@@ -468,10 +468,9 @@ Specialization, structured communication, a fitting collaboration pattern and a 
 
 # References and Further Reading
 
-- Multi-Agent AI Systems: Foundational Concepts and Architectures (Medium): https://medium.com/@sahin.samia/multi-agent-ai-systems-foundational-concepts-and-architectures-ece9f8859302
+- AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation (Wu et al., 2023): https://arxiv.org/abs/2308.08155
 - Multiagent Systems: A survey from a machine learning perspective (Peter Stone, Manuela Veloso): https://www.cs.utexas.edu/~pstone/Papers/bib2html/b2hd-MASsurvey.html
-- Multiagent Systems, MIT Press, 2013 (Book): http://the-mas-book.info/
-- How to Build Multi Agent AI System (Aalpha): https://www.aalpha.net/blog/how-to-build-multi-agent-ai-system/
+- Why Do Multi-Agent LLM Systems Fail? (Cemri et al., 2025): https://arxiv.org/abs/2503.13657
 - How we built our multi-agent research system (Anthropic, 2025): https://www.anthropic.com/engineering/built-multi-agent-research-system
 - Building effective agents: orchestrator-workers and other patterns (Anthropic, 2024): https://www.anthropic.com/engineering/building-effective-agents
 

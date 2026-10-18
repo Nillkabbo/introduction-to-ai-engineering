@@ -465,11 +465,11 @@ You now have the visibility needed to confidently run, debug, and scale your AI 
 
 - [OpenTelemetry semantic conventions for generative AI](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
 - [Prometheus: metric and label naming (on cardinality)](https://prometheus.io/docs/practices/naming/)
-- [What You Actually Need to Monitor AI Systems in Production (Sentry, 2025)](https://blog.sentry.io/what-you-actually-need-to-monitor-ai-systems-in-production/)
+- [What You Actually Need to Monitor AI Systems in Production (Sentry, 2025)](https://blog.sentry.io/what-you-actually-need-to-monitor-ai-systems-in-production)
 - [Chapter 12 - Observability (Azure AI in Production Guide)](https://azure.github.io/AI-in-Production-Guide/chapters/chapter_12_keeping_log_observability)
-- [Production-Ready Observability Platform for AI Systems (Medium, 2023)](https://medium.com/@bijit211987/production-ready-observability-platform-for-ai-systems-17923d19639b)
-- [A Simple Recipe for LLM Observability (Medium, 2025)](https://statistician-in-stilettos.medium.com/a-simple-recipe-for-llm-observability-5c6f24c96310)
-- [AI Observability: A Complete Guide to Monitoring Model Performance in Production (Galileo AI, 2025)](https://www.galileo.ai/blog/ai-observability)
+- [OpenTelemetry Python: Getting Started by Example](https://opentelemetry.io/docs/languages/python/getting-started/)
+- [Prometheus: alerting rules](https://prometheus.io/docs/prometheus/3.9/configuration/alerting_rules/)
+- [Your AI Product Needs Evals (Hamel Husain, 2024)](https://hamel.dev/blog/posts/evals/index.html)
 
 <!-- chapter-nav -->
 

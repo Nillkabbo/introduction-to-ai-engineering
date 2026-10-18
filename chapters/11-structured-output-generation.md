@@ -122,10 +122,11 @@ for issue in analysis.issues:
 import anthropic
 
 claude = anthropic.Anthropic()
+CLAUDE_MODEL = "claude-opus-5-5"
 
 def analyze_claude(sensor_data: str) -> DeviceAnalysis:
     response = claude.messages.parse(
-        model="claude-opus-5-5",
+        model=CLAUDE_MODEL,
         max_tokens=16000,
         messages=[{"role": "user", "content": f"Analyze this sensor reading: {sensor_data}"}],
         output_format=DeviceAnalysis,
@@ -140,10 +141,11 @@ from google import genai
 from google.genai import types
 
 gemini = genai.Client()
+GEMINI_MODEL = "gemini-3.8-flash"
 
 def analyze_gemini(sensor_data: str) -> DeviceAnalysis:
     response = gemini.models.generate_content(
-        model="gemini-3.8-flash",
+        model=GEMINI_MODEL,
         contents=f"Analyze this sensor reading: {sensor_data}",
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -370,7 +372,7 @@ You are now equipped to build AI systems that don't just talk, but speak the pre
 - Structured outputs (Claude documentation). https://platform.claude.com/docs/en/build-with-claude/structured-outputs
 - Structured output (Gemini API documentation). https://ai.google.dev/gemini-api/docs/structured-output
 - Pydantic documentation: validators. https://docs.pydantic.dev/latest/concepts/validators/
-- 4. Structured Output (Taming LLMs). https://www.tamingllms.com/notebooks/structured_output.html
+- Let Me Speak Freely? A Study on the Impact of Format Restrictions on Performance of Large Language Models (Tam et al., 2024). https://arxiv.org/abs/2408.02442
 
 <!-- chapter-nav -->
 

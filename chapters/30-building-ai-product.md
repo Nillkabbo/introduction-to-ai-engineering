@@ -145,11 +145,11 @@ Go build the future.
 
 # References and Further Reading
 
-- [Your Guide to AI Product Strategy (Aakash Gupta, 2025)](https://www.news.aakashg.com/p/ai-product-strategy?utm_source=publication-search)
-- [AI Progress in 2025: What’s Happened and What’s Next (Digital Bricks)](https://www.digitalbricks.ai/blog-posts/ai-progress-in-2025-whats-happened-and-whats-next)
-- [The State of Artificial Intelligence in 2025: Breakthroughs, Challenges, and the Road Ahead (TS2.Tech)](https://ts2.tech/en/the-state-of-artificial-intelligence-in-2025-breakthroughs-challenges-and-the-road-ahead-updated-2025-july-1st-1202-cet/)
-- [AI Product Management: How to Build AI Products (Product School)](https://productschool.com/blog/product-management-2/product-management-for-ai/)
-- [How to Build an AI Product: A Step-by-Step Guide (VentureBeat)](https://venturebeat.com/ai/how-to-build-an-ai-product-a-step-by-step-guide/)
+- [People + AI Guidebook (Google PAIR)](https://pair.withgoogle.com/guidebook)
+- [Guidelines for Human-AI Interaction (Microsoft Research, 2019)](https://www.microsoft.com/en-us/research/publication/guidelines-for-human-ai-interaction/)
+- [What We Learned from a Year of Building with LLMs, Part I (O'Reilly, 2024)](https://oreilly.com/radar/what-we-learned-from-a-year-of-building-with-llms-part-i/)
+- [The New Business of AI (and How It's Different From Traditional Software) (a16z, 2020)](https://a16z.com/the-new-business-of-ai-and-how-its-different-from-traditional-software/)
+- [AI Risk Management Framework (NIST)](https://www.nist.gov/itl/ai-risk-management-framework)
 
 <!-- chapter-nav -->
 

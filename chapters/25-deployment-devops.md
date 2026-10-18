@@ -288,6 +288,8 @@ from dataclasses import dataclass
 
 import openai
 
+REPORT_MODEL = "gpt-6-luna"   # in practice, read from config like `Config` above
+
 @dataclass
 class FleetMetrics:
     crash_rate: float          # crashes per device-day
@@ -314,7 +316,7 @@ def canary_gate(canary: FleetMetrics, control: FleetMetrics) -> tuple[str, list[
 def draft_release_report(client, firmware: str, decision: str, reasons: list[str], canary_logs: str) -> str:
     """The LLM explains and summarizes; it does not decide."""
     return client.responses.create(
-        model="gpt-6-luna",
+        model=REPORT_MODEL,
         instructions="You write concise firmware release reports for on-call engineers. Do not change or second-guess the decision.",
         input=f"""
 Firmware: {firmware}
@@ -384,11 +386,11 @@ By embracing these principles, you are not just deploying code; you are orchestr
 
 # References and Further Reading
 
-- [AI for Dev & DevOps | AWS Solutions for Artificial Intelligence](https://aws.amazon.com/solutions/ai/ai-dev-devops/)
-- [Best Practices for Deploying AI Models in Production (Capella Solutions, 2024)](https://www.capellasolutions.com/blog/best-practices-for-deploying-ai-models-in-production)
-- [AI deployments best practices (Octopus Deploy, 2024)](https://octopus.com/blog/ai-deployments)
-- [Future AI Deployment: Automating Full Lifecycle Management with Rollback Strategies and Cloud Migration (DEV.to, 2025)](https://dev.to/prabhucse/future-ai-deployment-automating-full-lifecycle-management-with-rollback-strategies-and-cloud-34on)
-- [How to Deploy an AI Model to Production Using AWS, GCP, or Azure (DEV.to, 2025)](https://dev.to/raji_moshood_ee3a4c2638f6/how-to-deploy-an-ai-model-to-production-using-aws-gcp-or-azure-3dam)
+- [Continuous Delivery for Machine Learning (martinfowler.com, 2019)](https://martinfowler.com/articles/cd4ml.html)
+- [Best practices for writing Dockerfiles (Docker documentation)](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/)
+- [Feature Toggles (aka Feature Flags) (Pete Hodgson, martinfowler.com, 2017)](https://martinfowler.com/articles/feature-toggles.html)
+- [Blue Green Deployment (Martin Fowler, 2010)](https://martinfowler.com/bliki/BlueGreenDeployment.html)
+- [Deprecations (OpenAI API documentation)](https://developers.openai.com/api/docs/deprecations)
 
 <!-- chapter-nav -->
 

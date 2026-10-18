@@ -421,10 +421,10 @@ By applying these techniques, you can transform a general-purpose language model
 
 # References and Further Reading
 
-- LLM Prompt Library (battle-tested prompt templates). https://abilzerian.github.io/LLM-Prompt-Library/
-- AwesomeGPTSystemPrompts (GitHub collection). https://github.com/AntreasAntoniou/AwesomeGPTSystemPrompts
+- Understand prompt design (Google Firebase AI Logic documentation). https://firebase.google.com/docs/ai-logic/prompt-design
+- How to write better prompts for GitHub Copilot (GitHub Blog). https://github.blog/ai-and-ml/github-copilot/how-to-write-better-prompts-for-github-copilot/
 - Prompt Engineering Guide (Prompting Guide). https://www.promptingguide.ai/
-- Prompt Creator: Prompt Engineering for AI (Prompt Creator). https://promptcreator.ai/
+- OpenAI Cookbook (OpenAI). https://developers.openai.com/cookbook
 
 <!-- chapter-nav -->
 
